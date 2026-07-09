@@ -10,8 +10,6 @@ type Options struct {
 func DefaultOptions() *Options {
 	return &Options{
 		Buckets: 256,
-		SecretFactory: func() lock.Secret {
-			return lock.NewNullSecret()
-		},
+		SecretFactory: &lock.NullSecretFactory{},
 	}
 }

@@ -34,7 +34,7 @@ func New(name string, options *Options) *Namespace {
 
 func (ns *Namespace) Lock(key string, ctx context.Context) (lock.Secret, error) {
 	l := ns.getLock(key)
-	secret := ns.Options.SecretFactory()
+	secret := ns.Options.SecretFactory.NewSecret()
 
 	err := l.Lock(ctx, secret)
 	if err != nil {
@@ -46,7 +46,7 @@ func (ns *Namespace) Lock(key string, ctx context.Context) (lock.Secret, error) 
 
 func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context) (lock.Secret, bool) {
 	l := ns.getLock(key)
-	secret := ns.Options.SecretFactory()
+	secret := ns.Options.SecretFactory.NewSecret()
 
 	ok, _ := l.TryLock(ctx, ttl, secret)
 	if !ok {

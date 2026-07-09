@@ -18,7 +18,7 @@ type LockService struct {
 	secretsMu  sync.RWMutex
 }
 
-func New() *LockService {
+func NewLockService() *LockService {
 	return &LockService{
 		namespaces: make(map[string]*namespace.Namespace),
 	}

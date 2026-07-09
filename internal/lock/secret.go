@@ -1,19 +1,33 @@
 package lock
 
-import "github.com/google/uuid"
+import (
+	"fmt"
 
-type SecretFactory func() Secret
+	"github.com/google/uuid"
+)
+
+type SecretFactory interface {
+	NewSecret() Secret
+	FromValue(value string) (Secret, error)
+}
+
 
 type Secret interface {
 	Check(secret Secret) bool
 	Value() string
 }
 
-type NullSecret struct{}
+type NullSecretFactory struct{}
 
-func NewNullSecret() *NullSecret {
+func (f *NullSecretFactory) NewSecret() Secret {
 	return &NullSecret{}
 }
+
+func (f *NullSecretFactory) FromValue(value string) (Secret, error) {
+	return &NullSecret{}, nil
+}
+
+type NullSecret struct{}
 
 func (s *NullSecret) Check(secret Secret) bool {
 	return true
@@ -23,12 +37,22 @@ func (s *NullSecret) Value() string {
 	return ""
 }
 
-type UUIDSecret struct {
-	uuid uuid.UUID
+type UUIDSecretFactory struct{}
+
+func (f *UUIDSecretFactory) NewSecret() Secret {
+	return &UUIDSecret{uuid: uuid.New()}
 }
 
-func NewUUIDSecret() *UUIDSecret {
-	return &UUIDSecret{uuid: uuid.New()}
+func (f *UUIDSecretFactory) FromValue(value string) (Secret, error) {
+	uuid, err := uuid.Parse(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid UUID: %w", err)
+	}
+	return &UUIDSecret{uuid: uuid}, nil
+}
+
+type UUIDSecret struct {
+	uuid uuid.UUID
 }
 
 func (s *UUIDSecret) Check(secret Secret) bool {
