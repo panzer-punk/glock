@@ -19,6 +19,16 @@ This is **not the final version** of the POC. The following is intentionally out
 - **PHP client** — `GlockClient.php` is a work in progress and not the final version.
 - **Project layout** — package and file organization may change.
 
+## TODO
+
+- [ ] **Go tests**
+- [ ] **Basic fault tolerance** — server failure behavior and lock recovery
+- [ ] **Architecture and project structure refactoring**
+- [ ] **Optimization**
+- [ ] **Logging**
+- [ ] **TCPBackend**
+- [ ] **Distribution** — coordination across multiple instances (approach not decided yet)
+
 ## Layout
 
 ```
