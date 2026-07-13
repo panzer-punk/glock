@@ -11,7 +11,6 @@ type SecretFactory interface {
 	FromValue(value string) (Secret, error)
 }
 
-
 type Secret interface {
 	Check(secret Secret) bool
 	Value() string

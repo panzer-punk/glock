@@ -26,12 +26,6 @@ type UnixSocketBackend struct {
 	connMu   sync.Mutex
 }
 
-type CommandResult struct {
-	Success bool
-	Error string
-	Data map[string]any
-}
-
 func NewUnixSocketBackend(socketPath string, app *App) *UnixSocketBackend {
 	return &UnixSocketBackend{
 		socketPath: socketPath,
@@ -59,7 +53,7 @@ func (b *UnixSocketBackend) Start() error {
 			}
 
 			func () {
-				b. connMu.Lock()
+				b.connMu.Lock()
 				defer b.connMu.Unlock()
 				b.conns = append(b.conns, conn)
 			}()
@@ -79,11 +73,18 @@ func (b *UnixSocketBackend) handleConn(conn net.Conn) {
 		})
 	}()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	session := NewSession(ctx)
+	defer session.Close()
+
 	header := make([]byte, PacketHeaderSize)
 
 	for {
 		_, err := io.ReadFull(conn, header)
 		if err != nil {
+			//@todo send error packet
 			return
 		}
 
@@ -91,6 +92,7 @@ func (b *UnixSocketBackend) handleConn(conn net.Conn) {
 		payload := make([]byte, pLen)
 		_, err = io.ReadFull(conn, payload)
 		if err != nil {
+			//@todo send error packet
 			return
 		}
 
@@ -101,10 +103,11 @@ func (b *UnixSocketBackend) handleConn(conn net.Conn) {
 
 		err = packet.DeserializePayload(payload)
 		if err != nil {
+			//@todo send error packet
 			return
 		}
 
-		response := b.app.HandlePacket(&packet, context.Background())
+		response := b.app.HandlePacket(&packet, session)
 		conn.Write(response.Serialize())
 	}
 }

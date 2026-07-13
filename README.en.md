@@ -6,7 +6,7 @@ Proof-of-concept for a distributed locking service aimed primarily at PHP. It pr
 
 ## Features
 
-- **Automatic lock release** — when a client disconnects, all locks held by that connection are released.
+- **Sessions** — each connection to the server is a separate session; held locks are tied to it and released automatically when the connection closes.
 - **Blocking and non-blocking locks** — `lock()` waits until the lock is available; `tryLock()` returns immediately.
 - **Namespace isolation** — locks are scoped to a namespace; the same key in different namespaces does not conflict.
 
@@ -15,7 +15,7 @@ Proof-of-concept for a distributed locking service aimed primarily at PHP. It pr
 This is **not the final version** of the POC. The following is intentionally out of scope or still in progress:
 
 - **Distribution** — the service runs as a single process; coordination across multiple instances is not implemented.
-- **Sessions and fault tolerance** — session handling and failure behavior are still under development.
+- **Fault tolerance** — server failure behavior and lock recovery are still under development.
 - **PHP client** — `GlockClient.php` is a work in progress and not the final version.
 - **Project layout** — package and file organization may change.
 
@@ -26,7 +26,12 @@ cmd/glock/          — server (Go)
 internal/           — locking logic, namespaces, protocol
 php/GlockClient.php — PHP client
 php/load_test*.php  — load-test scripts
+docs/benchmark.md   — comparative benchmark plan
 ```
+
+## Benchmarks
+
+Plan for comparing Glock with `flock`, APCu, and Redis — [docs/benchmark.en.md](docs/benchmark.en.md) ([Russian](docs/benchmark.md)).
 
 ## Quick start
 

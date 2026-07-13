@@ -83,6 +83,10 @@ for ($i = 0; $i < $iterations; $i++) {
     try {
         $secret = acquireTryLock($client, $namespace, $key, $retryMinDelayUs, $retryMaxDelayUs, $stats);
 
+        if ($secret === null) {
+            throw new RuntimeException('Failed to acquire lock');
+        }
+
         if ($holdMaxDelayUs > 0) {
             usleep(random_int($holdMinDelayUs, $holdMaxDelayUs));
         }
@@ -126,8 +130,8 @@ function acquireTryLock(
     int $retryMinDelayUs,
     int $retryMaxDelayUs,
     array &$stats,
-): string {
-    while (true) {
+): ?string {
+    for ($i = 0; $i < 1000; $i++) {
         try {
             [$secret, $acquired] = $client->tryLockWithSecret($namespace, $key);
             if ($acquired) {
@@ -142,4 +146,6 @@ function acquireTryLock(
         $stats['retries']++;
         usleep(random_int($retryMinDelayUs, $retryMaxDelayUs));
     }
+
+    return null;
 }

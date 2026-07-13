@@ -18,7 +18,7 @@ func main() {
 		LockService: service.NewLockService(),
 		Config: app.AppConfig{
 			DefaultNamespace:     "default",
-			DefaultTTL:           10 * time.Second,
+			DefaultTTL:           1 * time.Second,
 			DefaultSecretFactory: &lock.NullSecretFactory{},
 		},
 	}

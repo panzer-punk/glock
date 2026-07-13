@@ -15,7 +15,6 @@ var ErrNamespaceNotFound = errors.New("namespace not found")
 type LockService struct {
 	namespaces map[string]*namespace.Namespace
 	nsMu       sync.RWMutex
-	secretsMu  sync.RWMutex
 }
 
 func NewLockService() *LockService {

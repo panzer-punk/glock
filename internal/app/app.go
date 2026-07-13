@@ -8,6 +8,46 @@ import (
 	"time"
 )
 
+// type AppSession interface {
+	// RememberLock(k string, l *lock.Lock, sec *lock.Secret)
+	// ForgetLock(k string)
+// }
+
+type LockRelease func()
+
+type Session struct {
+	locks map[string]LockRelease
+	Ctx context.Context
+}
+
+func NewSession(ctx context.Context) *Session {
+	return &Session{
+		locks: make(map[string]LockRelease),
+		Ctx: ctx,
+	}
+}
+
+func (s *Session) RememberLock(k string, release LockRelease) {
+	if _, ok := s.locks[k]; ok {
+		return
+	}
+
+	s.locks[k] = release
+}
+
+func (s *Session) ForgetLock(k string) {
+	delete(s.locks, k)
+}
+
+func (s *Session) Close() error {
+	for k, release := range s.locks {
+		release()
+		s.ForgetLock(k)
+	}
+	return nil
+}
+
+
 type Container struct {
 	LockService *service.LockService
 	// NamespaceService *service.NamespaceService
@@ -22,13 +62,13 @@ type AppConfig struct {
 
 type App struct {
 	Container *Container
-	Routes map[PacketType]func(*Packet, context.Context) Packet
+	Routes map[PacketType]func(*Packet, *Session) Packet
 }
 
 func NewApp(container *Container) *App {
 	app := &App{
 		Container: container,
-		Routes: make(map[PacketType]func(*Packet, context.Context) Packet),
+		Routes: make(map[PacketType]func(*Packet, *Session) Packet),
 	}
 
 	initRouting(app)
@@ -44,7 +84,7 @@ func initRouting(app *App) error {
 	return nil
 }
 
-func (a *App)HandlePacket(p *Packet, ctx context.Context) Packet {
+func (a *App)HandlePacket(p *Packet, session *Session) Packet {
 	tp := p.Type
 	h, ok := a.Routes[tp]
 	if !ok {
@@ -53,10 +93,10 @@ func (a *App)HandlePacket(p *Packet, ctx context.Context) Packet {
 		return rp
 	}
 
-	return h(p, ctx)
+	return h(p, session)
 }
 
-func (a *App) handleLock(p *Packet, ctx context.Context) Packet {
+func (a *App) handleLock(p *Packet, session *Session) Packet {
 	rp := NewPacket(PacketTypeSuccess)
 
 	ns, ok := getBlockValue(p, PayloadBlockTypeNamespace)
@@ -71,13 +111,16 @@ func (a *App) handleLock(p *Packet, ctx context.Context) Packet {
 		return rp
 	}
 
-	sec, err := a.Container.LockService.Lock(string(ns), string(k), ctx)
+	sec, err := a.Container.LockService.Lock(string(ns), string(k), session.Ctx)
 	if err != nil {
 		rp.Type = PacketTypeError
 		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
 		return rp
 	}
 
+	session.RememberLock(string(k), func() {
+		a.Container.LockService.Unlock(string(ns), string(k), sec)
+	})
 	rp.AddBlock(NewPayloadBlock(PayloadBlockTypeSecret, []byte(sec.Value())))
 
 	return rp
@@ -92,7 +135,7 @@ func getBlockValue(p *Packet, tp PayloadBlockType) ([]byte, bool) {
 	return b.Value, true
 }
 
-func (a *App) handleTryLock(p *Packet, ctx context.Context) Packet {
+func (a *App) handleTryLock(p *Packet, session *Session) Packet {
 	rp := NewPacket(PacketTypeSuccess)
 
 	ns, ok := getBlockValue(p, PayloadBlockTypeNamespace)
@@ -107,13 +150,15 @@ func (a *App) handleTryLock(p *Packet, ctx context.Context) Packet {
 		return rp
 	}
 
+	var ttlDuration time.Duration
 	ttl, ok := getBlockValue(p, PayloadBlockTypeTTL)
 	if !ok {
-		ttl = binary.BigEndian.AppendUint64(make([]byte, 8), uint64(a.Container.Config.DefaultTTL))
+		ttlDuration = a.Container.Config.DefaultTTL
+	} else {
+		ttlDuration = time.Duration(binary.BigEndian.Uint64(ttl)) * time.Nanosecond
 	}
 
-	ttlDuration := time.Duration(binary.BigEndian.Uint64(ttl))
-	sec, ok := a.Container.LockService.TryLock(string(ns), string(k), ttlDuration, ctx)
+	sec, ok := a.Container.LockService.TryLock(string(ns), string(k), ttlDuration, session.Ctx)
 
 	var success byte
 	var secValue []byte
@@ -121,6 +166,9 @@ func (a *App) handleTryLock(p *Packet, ctx context.Context) Packet {
 	if ok {
 		success = 1
 		secValue = []byte(sec.Value())
+		session.RememberLock(string(k), func() {
+			a.Container.LockService.Unlock(string(ns), string(k), sec)
+		})
 	} else {
 		success = 0
 		secValue = []byte{0}
@@ -132,7 +180,7 @@ func (a *App) handleTryLock(p *Packet, ctx context.Context) Packet {
 	return rp
 }
 
-func (a *App) handleUnlock(p *Packet, ctx context.Context) Packet {
+func (a *App) handleUnlock(p *Packet, session *Session) Packet {
 	rp := NewPacket(PacketTypeSuccess)
 
 	ns, ok := getBlockValue(p, PayloadBlockTypeNamespace)
@@ -167,6 +215,8 @@ func (a *App) handleUnlock(p *Packet, ctx context.Context) Packet {
 		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
 		return rp
 	}
+
+	session.ForgetLock(string(k))
 
 	return rp
 }
