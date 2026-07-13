@@ -24,9 +24,11 @@ This is **not the final version** of the POC. The following is intentionally out
 - [ ] **Go tests**
 - [ ] **Basic fault tolerance** — server failure behavior and lock recovery
 - [ ] **Architecture and project structure refactoring**
-- [ ] **Optimization**
 - [ ] **Logging**
+- [ ] **Benchmarks**
+- [ ] **Optimization**
 - [ ] **TCPBackend**
+- [ ] **PHP client as a Composer package**
 - [ ] **Distribution** — coordination across multiple instances (approach not decided yet)
 
 ## Layout
