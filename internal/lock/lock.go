@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,6 +16,7 @@ var (
 
 type Lock struct {
 	lock   chan struct{}
+	locked *atomic.Bool
 	secret Secret
 
 	expirationCncl context.CancelFunc
@@ -22,8 +24,12 @@ type Lock struct {
 }
 
 func New() *Lock {
+	locked := atomic.Bool{}
+	locked.Store(false)
+
 	l := &Lock{
 		lock: make(chan struct{}, 1),
+		locked: &locked,
 	}
 
 	return l
@@ -43,6 +49,7 @@ func (l *Lock) Lock(ctx context.Context, secret Secret) error {
 		return ctx.Err()
 	case l.lock <- struct{}{}:
 		l.secret = secret
+		l.locked.Store(true)
 		return nil
 	}
 }
@@ -133,16 +140,21 @@ func (l *Lock) Unlock(secret Secret) error {
 }
 
 func (l *Lock) release() error {
+	if (!l.locked.CompareAndSwap(true, false)) {
+		return ErrNotLocked
+	}
+
+	if l.expirationCncl != nil {
+		l.expirationCncl()
+		l.expirationCncl = nil
+	}
+	l.secret = nil
+	l.expiresAt = time.Time{}
+
 	select {
 	case <-l.lock:
-		if l.expirationCncl != nil {
-			l.expirationCncl()
-			l.expirationCncl = nil
-		}
-		l.secret = nil
-		l.expiresAt = time.Time{}
 		return nil
 	default:
-		return ErrNotLocked
+		panic("lock is broken")
 	}
 }

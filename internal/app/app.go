@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-// type AppSession interface {
-	// RememberLock(k string, l *lock.Lock, sec *lock.Secret)
-	// ForgetLock(k string)
-// }
-
 type LockRelease func()
 
 type Session struct {
@@ -50,7 +45,6 @@ func (s *Session) Close() error {
 
 type Container struct {
 	LockService *service.LockService
-	// NamespaceService *service.NamespaceService
 	Config AppConfig
 }
 
