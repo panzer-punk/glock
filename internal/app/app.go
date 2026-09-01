@@ -160,9 +160,6 @@ func (a *App) handleTryLock(p *Packet, session *Session) Packet {
 	if ok {
 		success = 1
 		secValue = []byte(sec.Value())
-		session.RememberLock(string(k), func() {
-			a.Container.LockService.Unlock(string(ns), string(k), sec)
-		})
 	} else {
 		success = 0
 		secValue = []byte{0}

@@ -93,6 +93,7 @@ type Packet struct {
 	PayloadLength uint32
 
 	//Payload
+	//@todo maybe use map[PayloadBlockType]PayloadBlock?
 	Blocks        []PayloadBlock
 }
 
