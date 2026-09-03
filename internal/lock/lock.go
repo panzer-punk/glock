@@ -48,6 +48,16 @@ func (l *Lock) Lock(ctx context.Context, secret Secret) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case l.lock <- struct{}{}:
+		return l.accquire(ctx, secret)
+	}
+}
+
+func (l *Lock) accquire(ctx context.Context, secret Secret) error {
+	select {
+	case <-ctx.Done():
+		<-l.lock
+		return ctx.Err()
+	default:
 		l.secret = secret
 		l.locked.Store(true)
 		return nil
@@ -63,26 +73,30 @@ func (l *Lock) LockWithTTL(ctx context.Context, ttl time.Duration, secret Secret
 		ctx = context.Background()
 	}
 
-	if err := l.Lock(ctx, secret); err != nil {
-		return err
+	{ //sync point
+		if err := l.Lock(ctx, secret); err != nil {
+			return err
+		}
+		l.initTTL(ttl, secret)
 	}
-
-	l.initTTL(ttl)
 
 	return nil
 }
 
-func (l *Lock) initTTL(ttl time.Duration) {
-	if ttl == 0 {
-		return
-	}
-
+func (l *Lock) initTTL(ttl time.Duration, secret Secret) error {
 	l.expiresAt = time.Now().Add(ttl)
-	expirationCtx, expirationCncl := context.WithCancel(context.Background())
+	ctx, expirationCncl := context.WithCancel(context.Background())
 	l.expirationCncl = expirationCncl
 	time.AfterFunc(ttl, func() {
-		l.expire(expirationCtx)
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			l.Unlock(secret)
+		}
 	})
+
+	return nil
 }
 
 func (l *Lock) TryLock(ctx context.Context, ttl time.Duration, secret Secret) (bool, error) {
@@ -102,46 +116,29 @@ func (l *Lock) TryLock(ctx context.Context, ttl time.Duration, secret Secret) (b
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case l.lock <- struct{}{}:
-		l.secret = secret
-		l.initTTL(ttl)
-		return true, nil
+		{ //sync point
+			if err := l.accquire(ctx, secret); err != nil {
+				return false, err
+			}
+			l.initTTL(ttl, secret)
+			return true, nil
+		}
 	default:
 		return false, nil
 	}
 }
 
-func (l *Lock) expire(ctx context.Context) bool {
-	if l.expiresAt.IsZero() {
-		return false
-	}
-
-	select {
-	case <-ctx.Done():
-		return true
-	default:
-		return l.release() == nil
-	}
-}
-
 func (l *Lock) Unlock(secret Secret) error {
-	if l.secret == nil {
+	if (!l.locked.CompareAndSwap(true, false)) {
 		return ErrNotLocked
 	}
 
 	if secret == nil {
-		return ErrInvalidSecret
+		return ErrNilSecret
 	}
 
 	if !l.secret.Check(secret) {
 		return ErrInvalidSecret
-	}
-
-	return l.release()
-}
-
-func (l *Lock) release() error {
-	if (!l.locked.CompareAndSwap(true, false)) {
-		return ErrNotLocked
 	}
 
 	if l.expirationCncl != nil {
