@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -16,7 +17,7 @@ var (
 
 type Lock struct {
 	lock   chan struct{}
-	locked *atomic.Bool
+	mu     sync.Mutex
 	secret Secret
 
 	expirationCncl context.CancelFunc
@@ -29,13 +30,17 @@ func New() *Lock {
 
 	l := &Lock{
 		lock: make(chan struct{}, 1),
-		locked: &locked,
+		mu:   sync.Mutex{},
 	}
 
 	return l
 }
 
 func (l *Lock) Lock(ctx context.Context, secret Secret) error {
+	return l.accquire(ctx, secret, nil)
+}
+
+func (l *Lock) accquire(ctx context.Context, secret Secret, f func()) error {
 	if secret == nil {
 		return ErrNilSecret
 	}
@@ -48,18 +53,31 @@ func (l *Lock) Lock(ctx context.Context, secret Secret) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case l.lock <- struct{}{}:
-		return l.accquire(ctx, secret)
+		err := l.sync(ctx, func() {
+			l.secret = secret
+			if f != nil {
+				f()
+			}
+		})
+
+		if err == nil {
+			return nil
+		}
+
+		<-l.lock
+
+		return err
 	}
 }
 
-func (l *Lock) accquire(ctx context.Context, secret Secret) error {
+func (l *Lock) sync(ctx context.Context, f func()) error {
 	select {
 	case <-ctx.Done():
-		<-l.lock
 		return ctx.Err()
 	default:
-		l.secret = secret
-		l.locked.Store(true)
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		f()
 		return nil
 	}
 }
@@ -69,21 +87,12 @@ func (l *Lock) LockWithTTL(ctx context.Context, ttl time.Duration, secret Secret
 		return ErrInvalidTTL
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	{ //sync point
-		if err := l.Lock(ctx, secret); err != nil {
-			return err
-		}
+	return l.accquire(ctx, secret, func() {
 		l.initTTL(ttl, secret)
-	}
-
-	return nil
+	})
 }
 
-func (l *Lock) initTTL(ttl time.Duration, secret Secret) error {
+func (l *Lock) initTTL(ttl time.Duration, secret Secret) {
 	l.expiresAt = time.Now().Add(ttl)
 	ctx, expirationCncl := context.WithCancel(context.Background())
 	l.expirationCncl = expirationCncl
@@ -95,8 +104,6 @@ func (l *Lock) initTTL(ttl time.Duration, secret Secret) error {
 			l.Unlock(secret)
 		}
 	})
-
-	return nil
 }
 
 func (l *Lock) TryLock(ctx context.Context, ttl time.Duration, secret Secret) (bool, error) {
@@ -116,37 +123,51 @@ func (l *Lock) TryLock(ctx context.Context, ttl time.Duration, secret Secret) (b
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case l.lock <- struct{}{}:
-		{ //sync point
-			if err := l.accquire(ctx, secret); err != nil {
-				return false, err
-			}
+		err := l.sync(ctx, func() {
+			l.secret = secret
 			l.initTTL(ttl, secret)
+		})
+
+		if err == nil {
 			return true, nil
 		}
+
+		<-l.lock
+
+		return false, err
 	default:
 		return false, nil
 	}
 }
 
 func (l *Lock) Unlock(secret Secret) error {
-	if (!l.locked.CompareAndSwap(true, false)) {
-		return ErrNotLocked
-	}
-
 	if secret == nil {
 		return ErrNilSecret
 	}
 
-	if !l.secret.Check(secret) {
-		return ErrInvalidSecret
-	}
+	var err error
 
-	if l.expirationCncl != nil {
-		l.expirationCncl()
-		l.expirationCncl = nil
+	l.sync(context.Background(), func() {
+		if l.secret == nil {
+			err = ErrNotLocked
+			return
+		}
+
+		if !l.secret.Check(secret) {
+			err = ErrInvalidSecret
+			return
+		}
+		if l.expirationCncl != nil {
+			l.expirationCncl()
+			l.expirationCncl = nil
+		}
+		l.secret = nil
+		l.expiresAt = time.Time{}
+	})
+
+	if err != nil {
+		return err
 	}
-	l.secret = nil
-	l.expiresAt = time.Time{}
 
 	select {
 	case <-l.lock:
