@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -25,9 +24,6 @@ type Lock struct {
 }
 
 func New() *Lock {
-	locked := atomic.Bool{}
-	locked.Store(false)
-
 	l := &Lock{
 		lock: make(chan struct{}, 1),
 		mu:   sync.Mutex{},
