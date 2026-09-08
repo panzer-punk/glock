@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"glock/internal/lock"
 	"glock/internal/namespace"
+	"glock/internal/lock"
 )
 
 var ErrNamespaceNotFound = errors.New("namespace not found")
@@ -23,11 +23,11 @@ func NewLockService() *LockService {
 	}
 }
 
-func (ls *LockService) AddNamespace(name string, options *namespace.Options) {
+func (ls *LockService) AddNamespace(name string, bucketsCnt uint32, secFactory lock.SecretFactory) {
 	ls.nsMu.Lock()
 	defer ls.nsMu.Unlock()
 
-	ns := namespace.New(name, options)
+	ns := namespace.New(name, bucketsCnt, secFactory)
 	ls.namespaces[name] = ns
 }
 
@@ -46,25 +46,25 @@ func (ls *LockService) getNamespace(name string) (*namespace.Namespace, bool) {
 	return ns, ok
 }
 
-func (ls *LockService) Lock(namespace, key string, ctx context.Context) (lock.Secret, error) {
+func (ls *LockService) Lock(namespace, key string, ctx context.Context) (string, error) {
 	ns, ok := ls.getNamespace(namespace)
 	if !ok {
-		return nil, ErrNamespaceNotFound
+		return "", ErrNamespaceNotFound
 	}
 
 	return ns.Lock(key, ctx)
 }
 
-func (ls *LockService) TryLock(namespace, key string, ttl time.Duration, ctx context.Context) (lock.Secret, bool) {
+func (ls *LockService) TryLock(namespace, key string, ttl time.Duration, ctx context.Context) (string, bool) {
 	ns, ok := ls.getNamespace(namespace)
 	if !ok {
-		return nil, false
+		return "", false
 	}
 
 	return ns.TryLock(key, ttl, ctx)
 }
 
-func (ls *LockService) Unlock(namespace, key string, secret lock.Secret) error {
+func (ls *LockService) Unlock(namespace, key string, secret string) error {
 	ns, ok := ls.getNamespace(namespace)
 	if !ok {
 		return ErrNamespaceNotFound

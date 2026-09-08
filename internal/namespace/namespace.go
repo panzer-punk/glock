@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"hash/fnv"
-	"sync"
 	"time"
 
 	"glock/internal/lock"
@@ -14,78 +13,63 @@ var ErrLockNotFound = errors.New("lock not found")
 
 type Namespace struct {
 	Name    string
-	Options *Options
-	buckets []sync.Mutex
+	BucketsCnt uint32
+	secFactory lock.SecretFactory
+	buckets []*Bucket
 	locks   map[string]*lock.Lock
 }
 
-func New(name string, options *Options) *Namespace {
-	if options == nil {
-		options = DefaultOptions()
+func New(name string, bucketsCnt uint32, secFactory lock.SecretFactory) *Namespace {
+
+	buckets := make([]*Bucket, bucketsCnt)
+
+	for i := range bucketsCnt {
+		buckets[i] = NewBucket()
 	}
 
 	return &Namespace{
 		Name:    name,
-		Options: options,
-		buckets: make([]sync.Mutex, options.Buckets),
+		BucketsCnt: bucketsCnt,
+		secFactory: secFactory,
+		buckets: buckets,
 		locks:   make(map[string]*lock.Lock),
 	}
 }
 
-func (ns *Namespace) Lock(key string, ctx context.Context) (lock.Secret, error) {
-	l := ns.getLock(key)
-	secret := ns.Options.SecretFactory.NewSecret()
+func (ns *Namespace) Lock(key string, ctx context.Context) (string, error) {
+	b := ns.getBucket(key)
+	sec := ns.secFactory()
 
-	err := l.Lock(ctx, secret)
+	err := b.Lock(key, sec, ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return secret, nil
+	return sec, nil
 }
 
-func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context) (lock.Secret, bool) {
-	l := ns.getLock(key)
-	secret := ns.Options.SecretFactory.NewSecret()
+func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context) (string, bool) {
+	b := ns.getBucket(key)
+	sec := ns.secFactory()
 
-	ok, _ := l.TryLock(ctx, ttl, secret)
+	ok := b.TryLock(key, ttl, sec, ctx)
 	if !ok {
-		return nil, false
+		return "", false
 	}
 
-	return secret, true
+	return sec, true
 }
 
-func (ns *Namespace) getLock(key string) *lock.Lock {
-	bucket := ns.bucketLock(key)
-	bucket.Lock()
-	defer bucket.Unlock()
+func (ns *Namespace) getBucket(key string) *Bucket {
+	i := ns.bucketNum(key)
 
-	l, ok := ns.locks[key]
-	if !ok {
-		l = lock.New()
-		ns.locks[key] = l
-	}
-
-	return l
+	return ns.buckets[i]
 }
 
-func (ns *Namespace) bucketLock(key string) *sync.Mutex {
-	bucket := ns.bucketNum(key)
-	return &ns.buckets[bucket]
-}
+func (ns *Namespace) Unlock(key string, secret string) error {
+	b := ns.getBucket(key)
 
-func (ns *Namespace) Unlock(key string, secret lock.Secret) error {
-	bucket := ns.bucketLock(key)
-	bucket.Lock()
-	defer bucket.Unlock()
-
-	l, ok := ns.locks[key]
-	if !ok {
-		return ErrLockNotFound
-	}
-
-	err := l.Unlock(secret)
+	err := b.Unlock(key, secret)
 	if err != nil {
 		return err
 	}

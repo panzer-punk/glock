@@ -115,7 +115,7 @@ func (a *App) handleLock(p *Packet, session *Session) Packet {
 	session.RememberLock(string(k), func() {
 		a.Container.LockService.Unlock(string(ns), string(k), sec)
 	})
-	rp.AddBlock(NewPayloadBlock(PayloadBlockTypeSecret, []byte(sec.Value())))
+	rp.AddBlock(NewPayloadBlock(PayloadBlockTypeSecret, []byte(sec)))
 
 	return rp
 }
@@ -159,7 +159,7 @@ func (a *App) handleTryLock(p *Packet, session *Session) Packet {
 
 	if ok {
 		success = 1
-		secValue = []byte(sec.Value())
+		secValue = []byte(sec)
 	} else {
 		success = 0
 		secValue = []byte{0}
@@ -193,14 +193,7 @@ func (a *App) handleUnlock(p *Packet, session *Session) Packet {
 		return rp
 	}
 
-	secObj, err := a.Container.Config.DefaultSecretFactory.FromValue(string(sec))
-	if err != nil {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
-		return rp
-	}
-
-	err = a.Container.LockService.Unlock(string(ns), string(k), secObj)
+	err := a.Container.LockService.Unlock(string(ns), string(k), string(sec))
 	if err != nil {
 		rp.Type = PacketTypeError
 		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
