@@ -6,20 +6,19 @@ import (
 	"sync"
 	"time"
 
-	"glock/internal/namespace"
 	"glock/internal/lock"
 )
 
 var ErrNamespaceNotFound = errors.New("namespace not found")
 
 type LockService struct {
-	namespaces map[string]*namespace.Namespace
+	namespaces map[string]*lock.Namespace
 	nsMu       sync.RWMutex
 }
 
 func NewLockService() *LockService {
 	return &LockService{
-		namespaces: make(map[string]*namespace.Namespace),
+		namespaces: make(map[string]*lock.Namespace),
 	}
 }
 
@@ -27,7 +26,7 @@ func (ls *LockService) AddNamespace(name string, bucketsCnt uint32, secFactory l
 	ls.nsMu.Lock()
 	defer ls.nsMu.Unlock()
 
-	ns := namespace.New(name, bucketsCnt, secFactory)
+	ns := lock.NewNamespace(name, bucketsCnt, secFactory)
 	ls.namespaces[name] = ns
 }
 
@@ -38,7 +37,7 @@ func (ls *LockService) DeleteNamespace(name string) {
 	delete(ls.namespaces, name)
 }
 
-func (ls *LockService) getNamespace(name string) (*namespace.Namespace, bool) {
+func (ls *LockService) getNamespace(name string) (*lock.Namespace, bool) {
 	ls.nsMu.RLock()
 	defer ls.nsMu.RUnlock()
 

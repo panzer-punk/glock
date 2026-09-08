@@ -24,7 +24,7 @@ type Lock struct {
 	expiresAt      time.Time
 }
 
-func New() *Lock {
+func NewLock() *Lock {
 	l := &Lock{
 		lock: make(chan struct{}, 1),
 		mu:   sync.Mutex{},

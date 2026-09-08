@@ -1,12 +1,10 @@
-package namespace
+package lock
 
 import (
 	"context"
 	"errors"
 	"hash/fnv"
 	"time"
-
-	"glock/internal/lock"
 )
 
 var ErrLockNotFound = errors.New("lock not found")
@@ -14,12 +12,12 @@ var ErrLockNotFound = errors.New("lock not found")
 type Namespace struct {
 	Name    string
 	BucketsCnt uint32
-	secFactory lock.SecretFactory
+	secFactory SecretFactory
 	buckets []*Bucket
-	locks   map[string]*lock.Lock
+	locks   map[string]*Lock
 }
 
-func New(name string, bucketsCnt uint32, secFactory lock.SecretFactory) *Namespace {
+func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) *Namespace {
 
 	buckets := make([]*Bucket, bucketsCnt)
 
@@ -32,7 +30,7 @@ func New(name string, bucketsCnt uint32, secFactory lock.SecretFactory) *Namespa
 		BucketsCnt: bucketsCnt,
 		secFactory: secFactory,
 		buckets: buckets,
-		locks:   make(map[string]*lock.Lock),
+		locks:   make(map[string]*Lock),
 	}
 }
 

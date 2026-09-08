@@ -13,7 +13,7 @@ import (
 const testSecret = "test-secret"
 
 func TestLock_LockUnlock(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	if err := l.Lock(context.Background(), testSecret); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -24,7 +24,7 @@ func TestLock_LockUnlock(t *testing.T) {
 }
 
 func TestLock_EmptySecret(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	err := l.Lock(context.Background(), "")
 	if !errors.Is(err, ErrNilSecret) {
@@ -34,7 +34,7 @@ func TestLock_EmptySecret(t *testing.T) {
 
 func TestLock_NilContext(t *testing.T) {
 	var nilCtx context.Context
-	l := New()
+	l := NewLock()
 
 	err := l.Lock(nilCtx, testSecret)
 	if !errors.Is(err, ErrNilContext) {
@@ -43,7 +43,7 @@ func TestLock_NilContext(t *testing.T) {
 }
 
 func TestLock_CancelledContext(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -62,7 +62,7 @@ func TestLock_CancelledContext(t *testing.T) {
 }
 
 func TestTryLock_EmptySecret(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	ok, err := l.TryLock(context.Background(), time.Minute, "")
 	if !errors.Is(err, ErrNilSecret) {
@@ -74,7 +74,7 @@ func TestTryLock_EmptySecret(t *testing.T) {
 }
 
 func TestTryLock_InvalidTTL(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	ok, err := l.TryLock(context.Background(), 0, testSecret)
 	if !errors.Is(err, ErrInvalidTTL) {
@@ -98,7 +98,7 @@ func TestTryLock_InvalidTTL(t *testing.T) {
 
 func TestTryLock_NilContext(t *testing.T) {
 	var nilCtx context.Context
-	l := New()
+	l := NewLock()
 
 	ok, err := l.TryLock(nilCtx, time.Minute, testSecret)
 	if !errors.Is(err, ErrNilContext) {
@@ -110,7 +110,7 @@ func TestTryLock_NilContext(t *testing.T) {
 }
 
 func TestTryLock_CancelledContextWhileFree(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -136,7 +136,7 @@ func TestTryLock_CancelledContextWhileFree(t *testing.T) {
 }
 
 func TestTryLock_CancelledContextWhileHeld(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	if err := l.Lock(context.Background(), testSecret); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -159,7 +159,7 @@ func TestTryLock_CancelledContextWhileHeld(t *testing.T) {
 }
 
 func TestTryLock_Success(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	ok, err := l.TryLock(context.Background(), time.Minute, testSecret)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestTryLock_Success(t *testing.T) {
 }
 
 func TestUnlock_EmptySecret(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	if err := l.Lock(context.Background(), testSecret); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -200,7 +200,7 @@ func TestUnlock_EmptySecret(t *testing.T) {
 
 func TestLockWithTTL_NilContext(t *testing.T) {
 	var nilCtx context.Context
-	l := New()
+	l := NewLock()
 
 	err := l.LockWithTTL(nilCtx, time.Minute, testSecret)
 	if !errors.Is(err, ErrNilContext) {
@@ -209,7 +209,7 @@ func TestLockWithTTL_NilContext(t *testing.T) {
 }
 
 func TestLockWithTTL_EmptySecret(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	err := l.LockWithTTL(context.Background(), time.Minute, "")
 	if !errors.Is(err, ErrNilSecret) {
@@ -218,7 +218,7 @@ func TestLockWithTTL_EmptySecret(t *testing.T) {
 }
 
 func TestLockWithTTL_InvalidTTL(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	err := l.LockWithTTL(context.Background(), 0, testSecret)
 	if !errors.Is(err, ErrInvalidTTL) {
@@ -228,7 +228,7 @@ func TestLockWithTTL_InvalidTTL(t *testing.T) {
 
 func TestLock_CancelledContextAfterAcquire(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		l := New()
+		l := NewLock()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -266,7 +266,7 @@ func TestLock_CancelledContextAfterAcquire(t *testing.T) {
 
 func TestTryLock_CancelledContextAfterAcquire(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		l := New()
+		l := NewLock()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -318,7 +318,7 @@ func TestTryLock_CancelledContextAfterAcquire(t *testing.T) {
 }
 
 func TestLock_AlreadyLocked(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	if err := l.Lock(context.Background(), testSecret); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -334,7 +334,7 @@ func TestLock_AlreadyLocked(t *testing.T) {
 }
 
 func TestLock_BlocksUntilContextCancelled(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	if err := l.Lock(context.Background(), testSecret); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -361,7 +361,7 @@ func TestLock_WrongSecretOnUnlock(t *testing.T) {
 	sec1 := "123e4567-e89b-12d3-a456-426614174000"
 	sec2 := "00000000-0000-0000-0000-000000000001"
 
-	l := New()
+	l := NewLock()
 	if err := l.Lock(context.Background(), sec1); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestLock_WrongSecretOnUnlock(t *testing.T) {
 }
 
 func TestLock_UnlockWhenNotLocked(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	err := l.Unlock(testSecret)
 	if !errors.Is(err, ErrNotLocked) {
@@ -395,7 +395,7 @@ func TestLock_UnlockWhenNotLocked(t *testing.T) {
 
 func TestLockWithTTL_Expires(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		l := New()
+		l := NewLock()
 
 		if err := l.LockWithTTL(context.Background(), time.Minute, testSecret); err != nil {
 			t.Fatalf("lock with ttl: %v", err)
@@ -424,7 +424,7 @@ func TestLockWithTTL_Expires(t *testing.T) {
 
 func TestLockWithTTL_StillHeldBeforeExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		l := New()
+		l := NewLock()
 
 		const ttl = 2 * time.Minute
 		const elapsed = ttl - time.Second // 1:59
@@ -451,7 +451,7 @@ func TestLockWithTTL_ExpireDoesNotReleaseRelockedWithoutTTL(t *testing.T) {
 		first := "123e4567-e89b-12d3-a456-426614174000"
 		second := "00000000-0000-0000-0000-000000000001"
 
-		l := New()
+		l := NewLock()
 
 		if err := l.LockWithTTL(context.Background(), time.Minute, first); err != nil {
 			t.Fatalf("lock with ttl: %v", err)
@@ -483,7 +483,7 @@ func TestLockWithTTL_ExpireDoesNotReleaseRelockedWithoutTTL(t *testing.T) {
 }
 
 func TestLock_ConcurrentLockMutualExclusion(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	const goroutines = 32
 	const iterations = 50
@@ -520,7 +520,7 @@ func TestLock_ConcurrentLockMutualExclusion(t *testing.T) {
 
 func TestLock_ConcurrentBlockingLockHandoff(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		l := New()
+		l := NewLock()
 
 		const waiters = 20
 		var acquired atomic.Int32
@@ -560,7 +560,7 @@ func TestLock_ConcurrentBlockingLockHandoff(t *testing.T) {
 }
 
 func TestLock_ConcurrentTryLock(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	const goroutines = 32
 	var winners atomic.Int32
@@ -592,7 +592,7 @@ func TestLock_ConcurrentTryLock(t *testing.T) {
 }
 
 func TestLock_ConcurrentTryLockAfterRelease(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	const contenders = 16
 
@@ -653,7 +653,7 @@ func TestLock_ConcurrentTryLockAfterRelease(t *testing.T) {
 }
 
 func TestLock_ConcurrentUnlockOnlyOneSucceeds(t *testing.T) {
-	l := New()
+	l := NewLock()
 
 	if err := l.Lock(context.Background(), testSecret); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -683,7 +683,7 @@ func TestLock_ConcurrentWrongSecretUnlockDoesNotRelease(t *testing.T) {
 	owner := "123e4567-e89b-12d3-a456-426614174000"
 	wrong := "00000000-0000-0000-0000-000000000001"
 
-	l := New()
+	l := NewLock()
 	if err := l.Lock(context.Background(), owner); err != nil {
 		t.Fatalf("lock: %v", err)
 	}

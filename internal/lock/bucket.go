@@ -1,19 +1,18 @@
-package namespace
+package lock
 
 import (
 	"context"
-	"glock/internal/lock"
 	"sync"
 	"time"
 )
 
 type Bucket struct {
 	mu sync.RWMutex
-	locks map[string]*lock.Lock
+	locks map[string]*Lock
 }
 
 func NewBucket() *Bucket {
-	return  &Bucket{mu: sync.RWMutex{}, locks: make(map[string]*lock.Lock)}
+	return  &Bucket{mu: sync.RWMutex{}, locks: make(map[string]*Lock)}
 }
 
 func (b *Bucket) Lock(key string, sec string, ctx context.Context) error {
@@ -22,14 +21,14 @@ func (b *Bucket) Lock(key string, sec string, ctx context.Context) error {
 	return l.Lock(ctx, sec)
 }
 
-func (b *Bucket) findLock(key string) *lock.Lock {
+func (b *Bucket) findLock(key string) *Lock {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	l, ok := b.locks[key]
 
 	if !ok {
-		l = lock.New()
+		l = NewLock()
 		b.locks[key] = l
 	}
 
@@ -46,9 +45,9 @@ func (b *Bucket) TryLock(key string, ttl time.Duration, sec string, ctx context.
 
 func (b *Bucket) Unlock(key string, sec string) error {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	l, ok := b.locks[key]
+	b.mu.RUnlock()
+
 	if !ok {
 		return ErrLockNotFound
 	}

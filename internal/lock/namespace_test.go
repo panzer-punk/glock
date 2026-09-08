@@ -1,4 +1,4 @@
-package namespace
+package lock
 
 import (
 	"context"
@@ -8,12 +8,10 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
-
-	"glock/internal/lock"
 )
 
-func TestNew(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+func TestNewNamespace(t *testing.T) {
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 	if ns.Name != "test" {
 		t.Fatalf("name: got %q, want test", ns.Name)
 	}
@@ -26,7 +24,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestNamespace_LockUnlock(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	secret, err := ns.Lock("resource", context.Background())
 	if err != nil {
@@ -42,7 +40,7 @@ func TestNamespace_LockUnlock(t *testing.T) {
 }
 
 func TestNamespace_UnlockNotFound(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	err := ns.Unlock("missing", "any-secret")
 	if !errors.Is(err, ErrLockNotFound) {
@@ -51,7 +49,7 @@ func TestNamespace_UnlockNotFound(t *testing.T) {
 }
 
 func TestNamespace_UnlockWrongSecret(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	owner, err := ns.Lock("resource", context.Background())
 	if err != nil {
@@ -60,7 +58,7 @@ func TestNamespace_UnlockWrongSecret(t *testing.T) {
 
 	wrong := "wrong-secret"
 	err = ns.Unlock("resource", wrong)
-	if !errors.Is(err, lock.ErrInvalidSecret) {
+	if !errors.Is(err, ErrInvalidSecret) {
 		t.Fatalf("expected ErrInvalidSecret, got %v", err)
 	}
 
@@ -75,7 +73,7 @@ func TestNamespace_UnlockWrongSecret(t *testing.T) {
 }
 
 func TestNamespace_TryLockSuccess(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	secret, ok := ns.TryLock("resource", time.Minute, context.Background())
 	if !ok {
@@ -91,7 +89,7 @@ func TestNamespace_TryLockSuccess(t *testing.T) {
 }
 
 func TestNamespace_TryLockAlreadyHeld(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	owner, err := ns.Lock("resource", context.Background())
 	if err != nil {
@@ -112,7 +110,7 @@ func TestNamespace_TryLockAlreadyHeld(t *testing.T) {
 }
 
 func TestNamespace_DifferentKeysAreIndependent(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	first, err := ns.Lock("a", context.Background())
 	if err != nil {
@@ -133,7 +131,7 @@ func TestNamespace_DifferentKeysAreIndependent(t *testing.T) {
 }
 
 func TestNamespace_LockBlocksSameKey(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	owner, err := ns.Lock("resource", context.Background())
 	if err != nil {
@@ -163,7 +161,7 @@ func TestNamespace_LockBlocksSameKey(t *testing.T) {
 }
 
 func TestNamespace_LockCancelledContext(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -178,7 +176,7 @@ func TestNamespace_LockCancelledContext(t *testing.T) {
 }
 
 func TestNamespace_ConcurrentDifferentKeys(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	const goroutines = 32
 	var wg sync.WaitGroup
@@ -204,7 +202,7 @@ func TestNamespace_ConcurrentDifferentKeys(t *testing.T) {
 }
 
 func TestNamespace_ConcurrentSameKey(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	const goroutines = 16
 	var success atomic.Int32
@@ -232,7 +230,7 @@ func TestNamespace_ConcurrentSameKey(t *testing.T) {
 
 func TestNamespace_ConcurrentLockHandoff(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ns := New("test", 16, lock.UUIDSecretFactory)
+		ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 		const waiters = 10
 		var acquired atomic.Int32
@@ -274,7 +272,7 @@ func TestNamespace_ConcurrentLockHandoff(t *testing.T) {
 }
 
 func TestNamespace_bucketNumStable(t *testing.T) {
-	ns := New("test", 16, lock.UUIDSecretFactory)
+	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
 	first := ns.bucketNum("stable-key")
 	second := ns.bucketNum("stable-key")
