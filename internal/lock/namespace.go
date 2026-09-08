@@ -2,12 +2,9 @@ package lock
 
 import (
 	"context"
-	"errors"
 	"hash/fnv"
 	"time"
 )
-
-var ErrLockNotFound = errors.New("lock not found")
 
 type Namespace struct {
 	Name    string

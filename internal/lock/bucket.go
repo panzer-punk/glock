@@ -2,9 +2,12 @@ package lock
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
+
+var ErrLockNotFound = errors.New("lock not found")
 
 type Bucket struct {
 	mu sync.RWMutex
