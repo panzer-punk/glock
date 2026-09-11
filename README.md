@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-POC сервиса распределённых блокировок, ориентированного в первую очередь на PHP. Предоставляет механизм для создания mutex в PHP-приложениях через Unix-сокет.
+POC сервиса распределённых блокировок, ориентированного в первую очередь на PHP в классическом сценарии с **php-fpm** и **php-cli**: mutex между процессами через Unix-сокет на одном хосте и, далее, через TCP между хостами.
 
 ## Возможности
 
@@ -43,7 +43,7 @@ docs/benchmark.md   — план сравнительных бенчмарков
 
 ## Бенчмарки
 
-План сравнения Glock с `flock`, APCu и Redis — [docs/benchmark.md](docs/benchmark.md) ([English](docs/benchmark.en.md)).
+План сравнения Glock с `flock` и Redis — [docs/benchmark.md](docs/benchmark.md) ([English](docs/benchmark.en.md)).
 
 ## Быстрый старт
 

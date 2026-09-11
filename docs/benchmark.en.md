@@ -8,7 +8,7 @@ This document captures the comparative testing plan for the POC. The goal is to 
 
 | Axis | Question |
 |---|---|
-| **Local mutex** (single host) | Do we need a dedicated daemon, or are `flock` / in-process locks enough? |
+| **Local mutex** (single host) | Do we need a dedicated daemon, or is `flock` enough? |
 | **Network mutex** | Does a dedicated lock service make sense when Redis is already available? |
 
 Do **not** mix these axes in a single report.
@@ -21,7 +21,6 @@ Compare on one machine, under conditions close to PHP-FPM:
 
 - **Glock** (`UnixSocketBackend`)
 - **`flock`** — file lock across workers
-- **`APCu`** *(optional)* — single-process PHP only (CLI daemon, long-running worker). **Not a mutex across FPM workers.**
 
 ### Phase 2 — network mutex
 
@@ -41,7 +40,6 @@ Separate server microbenchmarks without PHP, to see how much latency comes from 
 | `flock` | processes on one machine |
 | Glock (unix / tcp) | workers / processes; with tcp, across hosts |
 | Redis | across machines |
-| APCu | inside a single PHP process only |
 
 ## Scenarios (required)
 
@@ -124,7 +122,7 @@ Tail latency (p95/p99) matters more than the mean.
 
 ```text
 Phase 1 (local):
-  Backends: Glock UnixSocket | flock | APCu*
+  Backends: Glock UnixSocket | flock
   Scenarios: S1, S2, S3, S4, S5
 
 Phase 2 (network, localhost):
@@ -133,8 +131,6 @@ Phase 2 (network, localhost):
 
 Phase 3:
   Go server microbenchmarks (no PHP)
-
-* APCu — only if there is an explicit single-process PHP use case
 ```
 
 ## Tooling (current and planned)
@@ -147,7 +143,7 @@ In the repo today:
 Planned:
 
 - parallel launch of N workers (shell / make target)
-- adapters for `flock`, Redis, APCu with the same scenario API
+- adapters for `flock`, Redis with the same scenario API
 - `TCPBackend` in Go
 - result aggregation script (p50/p95/p99, ops/sec)
 
@@ -170,8 +166,7 @@ notes (PHP version, OS, Redis version, etc.)
 
 1. Finish S2 + S4 for **Glock UnixSocket vs flock** — the main local question.
 2. Add **TCPBackend**, rerun the matrix against **Redis**.
-3. **APCu** — only for an explicit single-process use case.
-4. Go microbench — when server overhead needs to be separated from the PHP client.
+3. Go microbench — when server overhead needs to be separated from the PHP client.
 
 ## Related files
 

@@ -2,7 +2,7 @@
 
 [Russian](README.md)
 
-Proof-of-concept for a distributed locking service aimed primarily at PHP. It provides a mutex mechanism for PHP applications over a Unix socket.
+Proof-of-concept for a distributed locking service aimed primarily at PHP in the classic **php-fpm** and **php-cli** setup: a mutex between processes over a Unix socket on one host, and later over TCP across hosts.
 
 ## Features
 
@@ -43,7 +43,7 @@ docs/benchmark.md   — comparative benchmark plan
 
 ## Benchmarks
 
-Plan for comparing Glock with `flock`, APCu, and Redis — [docs/benchmark.en.md](docs/benchmark.en.md) ([Russian](docs/benchmark.md)).
+Plan for comparing Glock with `flock` and Redis — [docs/benchmark.en.md](docs/benchmark.en.md) ([Russian](docs/benchmark.md)).
 
 ## Quick start
 
