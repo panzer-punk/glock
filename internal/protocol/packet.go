@@ -1,8 +1,10 @@
-package app
+package protocol
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"unsafe"
 )
 
 /*
@@ -41,6 +43,9 @@ const (
 
 	PayloadBlockTypeSuccess //success boolean
 	PayloadBlockTypeError //error message
+
+	//size of blocks array in Packet
+	blocksSize = PayloadBlockTypeError + 1
 )
 
 type PacketType uint8
@@ -65,17 +70,21 @@ type PayloadBlock struct {
 	Value []byte
 }
 
-func (p *PayloadBlock) Serialize() []byte {
-	buf := make([]byte, PayloadBlockHeaderSize+len(p.Value))
-	buf[0] = byte(p.Type)
-	binary.BigEndian.PutUint16(buf[1:3], uint16(len(p.Value)))
-	copy(buf[3:], p.Value)
+func (p *PayloadBlock) serialize(buf *bytes.Buffer) {
+	var len [2]byte
+	binary.BigEndian.PutUint16(len[:], p.Len)
 
-	return buf
+	buf.WriteByte(byte(p.Type))
+	buf.Write(len[:])
+	buf.Write(p.Value)
 }
 
 func (p *PayloadBlock) Size() uint32 {
 	return uint32(PayloadBlockHeaderSize + p.Len)
+}
+
+func (p *PayloadBlock) Empty() bool {
+	return p.Len == 0 && len(p.Value) == 0
 }
 
 func NewPayloadBlock(tp PayloadBlockType, value []byte) PayloadBlock {
@@ -93,8 +102,7 @@ type Packet struct {
 	PayloadLength uint32
 
 	//Payload
-	//@todo maybe use map[PayloadBlockType]PayloadBlock?
-	Blocks        []PayloadBlock
+	Blocks        [blocksSize]PayloadBlock
 }
 
 const (
@@ -106,25 +114,36 @@ func NewPacket(tp PacketType) Packet {
 		Version:       ProtoVersion,
 		Type:          tp,
 		PayloadLength: 0,
-		Blocks:        make([]PayloadBlock, 0),
 	}
 }
 
-func (p *Packet) Serialize() []byte {
-	payload := make([]byte, 0)
+func NewErrPacket(err error) *Packet {
+	packet := NewPacket(PacketTypeError)
+	errMsg := err.Error()
+	block := NewPayloadBlock(
+		PayloadBlockTypeError,
+		unsafe.Slice(unsafe.StringData(errMsg), len(errMsg)),
+	)
+	packet.AddBlock(block)
+
+	return &packet
+}
+
+func (p *Packet) Serialize(buf *bytes.Buffer) {
+	var headers [PacketHeaderSize]byte
+
+	headers[0] = p.Version
+	headers[1] = byte(p.Type)
+	binary.BigEndian.PutUint32(headers[2:6], p.PayloadLength)
+
+	buf.Write(headers[:])
 	for _, block := range p.Blocks {
-		payload = append(payload, block.Serialize()...)
+		if block.Empty() {
+			continue
+		}
+
+		block.serialize(buf)
 	}
-
-	p.PayloadLength = uint32(len(payload))
-
-	buf := make([]byte, PacketHeaderSize+len(payload))
-	buf[0] = p.Version
-	buf[1] = byte(p.Type)
-	binary.BigEndian.PutUint32(buf[2:6], p.PayloadLength)
-	copy(buf[PacketHeaderSize:], payload)
-
-	return buf
 }
 
 func (p *Packet) Deserialize(data []byte) error {
@@ -140,8 +159,6 @@ func (p *Packet) Deserialize(data []byte) error {
 }
 
 func (p *Packet) DeserializePayload(data []byte) error {
-	p.Blocks = make([]PayloadBlock, 0)
-
 	if uint32(len(data)) != p.PayloadLength {
 		return errors.New("invalid packet: payload length mismatch")
 	}
@@ -153,18 +170,21 @@ func (p *Packet) DeserializePayload(data []byte) error {
 			return errors.New("invalid packet")
 		}
 
-		tp := blocksData[0]
+		tp := PayloadBlockType(blocksData[0])
 		blockLen := binary.BigEndian.Uint16(blocksData[1:3])
 		if len(blocksData) < int(PayloadBlockHeaderSize+blockLen) {
 			return errors.New("invalid packet")
 		}
 
 		value := blocksData[3 : 3+blockLen]
-		p.Blocks = append(p.Blocks, PayloadBlock{
-			Type:  PayloadBlockType(tp),
-			Len:   blockLen,
-			Value: value,
-		})
+
+		if int(tp) < len(p.Blocks) {
+			p.Blocks[tp] = PayloadBlock{
+				Type: tp,
+				Len: blockLen,
+				Value: value,
+			}
+		}
 
 		blocksData = blocksData[3+blockLen:]
 	}
@@ -172,17 +192,27 @@ func (p *Packet) DeserializePayload(data []byte) error {
 	return nil
 }
 
-func (p *Packet) FindBlock(tp PayloadBlockType) (*PayloadBlock, bool) {
-	for _, block := range p.Blocks {
-		if block.Type == tp {
-			return &block, true
-		}
+func (p *Packet) FindBlock(tp PayloadBlockType) (PayloadBlock, bool) {
+	if int(tp) >= len(p.Blocks) || p.Blocks[tp].Empty() {
+		return PayloadBlock{}, false
 	}
 
-	return nil, false
+	return p.Blocks[tp], true
 }
 
 func (p *Packet) AddBlock(block PayloadBlock) {
-	p.Blocks = append(p.Blocks, block)
+	cur := p.Blocks[block.Type]
+	if !cur.Empty() {
+		p.PayloadLength -= cur.Size()
+	}
+
+	p.Blocks[block.Type] = block
 	p.PayloadLength += block.Size()
+}
+
+func (p *Packet) Reset() {
+	p.Version = 0
+	p.Type = 0
+	p.PayloadLength = 0
+	clear(p.Blocks[:])
 }

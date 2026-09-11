@@ -2,205 +2,47 @@ package app
 
 import (
 	"context"
-	"encoding/binary"
+	"errors"
 	"glock/internal/lock"
-	"glock/internal/service"
+	"glock/internal/protocol"
+	"glock/internal/transport"
 	"time"
 )
 
-type LockRelease func()
+const sessionKey = "session"
 
-type Session struct {
-	locks map[string]LockRelease
-	Ctx context.Context
-}
-
-func NewSession(ctx context.Context) *Session {
-	return &Session{
-		locks: make(map[string]LockRelease),
-		Ctx: ctx,
-	}
-}
-
-func (s *Session) RememberLock(k string, release LockRelease) {
-	if _, ok := s.locks[k]; ok {
-		return
-	}
-
-	s.locks[k] = release
-}
-
-func (s *Session) ForgetLock(k string) {
-	delete(s.locks, k)
-}
-
-func (s *Session) Close() error {
-	for k, release := range s.locks {
-		release()
-		s.ForgetLock(k)
-	}
-	return nil
-}
-
-
-type Container struct {
-	LockService *service.LockService
-	Config AppConfig
-}
-
-type AppConfig struct {
+type Config struct {
 	DefaultNamespace string
 	DefaultTTL time.Duration
-	DefaultSecretFactory lock.SecretFactory
+
+	SecretFactory *lock.SecretFactory
+	LockManager *lock.LockManager
 }
 
 type App struct {
-	Container *Container
-	Routes map[PacketType]func(*Packet, *Session) Packet
+	conf *Config
+	sessions map[*transport.Conn]*Session
 }
 
-func NewApp(container *Container) *App {
-	app := &App{
-		Container: container,
-		Routes: make(map[PacketType]func(*Packet, *Session) Packet),
+func NewApp(conf *Config) *App {
+	return &App{
+		conf: conf,
+		sessions: make(map[*transport.Conn]*Session),
 	}
-
-	initRouting(app)
-
-	return app
 }
 
-func initRouting(app *App) error {
-	app.Routes[PacketTypeLock] = app.handleLock
-	app.Routes[PacketTypeTryLock] = app.handleTryLock
-	app.Routes[PacketTypeUnlock] = app.handleUnlock
-
-	return nil
-}
-
-func (a *App)HandlePacket(p *Packet, session *Session) Packet {
-	tp := p.Type
-	h, ok := a.Routes[tp]
-	if !ok {
-		rp := NewPacket(PacketTypeError)
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte("Unknow packet type")))
-		return rp
-	}
-
-	return h(p, session)
-}
-
-func (a *App) handleLock(p *Packet, session *Session) Packet {
-	rp := NewPacket(PacketTypeSuccess)
-
-	ns, ok := getBlockValue(p, PayloadBlockTypeNamespace)
-	if !ok {
-		ns = []byte(a.Container.Config.DefaultNamespace)
-	}
-
-	k, ok := getBlockValue(p, PayloadBlockTypeKey)
-	if !ok {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte("Missing key")))
-		return rp
-	}
-
-	sec, err := a.Container.LockService.Lock(string(ns), string(k), session.Ctx)
-	if err != nil {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
-		return rp
-	}
-
-	session.RememberLock(string(k), func() {
-		a.Container.LockService.Unlock(string(ns), string(k), sec)
+func (a *App) OnConnect(ctx context.Context) context.Context {
+	s := NewSession()
+	context.AfterFunc(ctx, func() {
+		s.Close()
 	})
-	rp.AddBlock(NewPayloadBlock(PayloadBlockTypeSecret, []byte(sec)))
 
-	return rp
+	return context.WithValue(ctx, sessionKey, s)
 }
 
-func getBlockValue(p *Packet, tp PayloadBlockType) ([]byte, bool) {
-	b, ok := p.FindBlock(tp)
+func (a *App) Handle(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
+	s, ok := ctx.Value(sessionKey).(*Session)
 	if !ok {
-		return nil, false
+		return nil, errors.New("session not found")
 	}
-
-	return b.Value, true
-}
-
-func (a *App) handleTryLock(p *Packet, session *Session) Packet {
-	rp := NewPacket(PacketTypeSuccess)
-
-	ns, ok := getBlockValue(p, PayloadBlockTypeNamespace)
-	if !ok {
-		ns = []byte(a.Container.Config.DefaultNamespace)
-	}
-
-	k, ok := getBlockValue(p, PayloadBlockTypeKey)
-	if !ok {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte("Missing key")))
-		return rp
-	}
-
-	var ttlDuration time.Duration
-	ttl, ok := getBlockValue(p, PayloadBlockTypeTTL)
-	if !ok {
-		ttlDuration = a.Container.Config.DefaultTTL
-	} else {
-		ttlDuration = time.Duration(binary.BigEndian.Uint64(ttl)) * time.Nanosecond
-	}
-
-	sec, ok := a.Container.LockService.TryLock(string(ns), string(k), ttlDuration, session.Ctx)
-
-	var success byte
-	var secValue []byte
-
-	if ok {
-		success = 1
-		secValue = []byte(sec)
-	} else {
-		success = 0
-		secValue = []byte{0}
-	}
-
-	rp.AddBlock(NewPayloadBlock(PayloadBlockTypeSecret, secValue))
-	rp.AddBlock(NewPayloadBlock(PayloadBlockTypeSuccess, []byte{success}))
-
-	return rp
-}
-
-func (a *App) handleUnlock(p *Packet, session *Session) Packet {
-	rp := NewPacket(PacketTypeSuccess)
-
-	ns, ok := getBlockValue(p, PayloadBlockTypeNamespace)
-	if !ok {
-		ns = []byte(a.Container.Config.DefaultNamespace)
-	}
-
-	k, ok := getBlockValue(p, PayloadBlockTypeKey)
-	if !ok {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte("Missing key")))
-		return rp
-	}
-
-	sec, ok := getBlockValue(p, PayloadBlockTypeSecret)
-	if !ok {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte("Missing secret")))
-		return rp
-	}
-
-	err := a.Container.LockService.Unlock(string(ns), string(k), string(sec))
-	if err != nil {
-		rp.Type = PacketTypeError
-		rp.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
-		return rp
-	}
-
-	session.ForgetLock(string(k))
-
-	return rp
 }
