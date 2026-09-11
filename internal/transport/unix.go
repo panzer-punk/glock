@@ -20,7 +20,7 @@ var packetBufferPool = sync.Pool{
 
 type UnixSocketBackend struct {
 	socketPath string
-	handler Handler
+	handler    Handler
 
 	listener net.Listener
 	conns    map[*Conn]struct{}
@@ -30,8 +30,8 @@ type UnixSocketBackend struct {
 func NewUnixSocketBackend(socketPath string) *UnixSocketBackend {
 	return &UnixSocketBackend{
 		socketPath: socketPath,
-		conns: make(map[*Conn]struct{}),
-		connMu: sync.Mutex{},
+		conns:      make(map[*Conn]struct{}),
+		connMu:     sync.Mutex{},
 	}
 }
 
@@ -40,9 +40,12 @@ func (b *UnixSocketBackend) Start(handler Handler) error {
 	if err != nil {
 		return err
 	}
+
+	b.connMu.Lock()
 	b.listener = listener
-	defer listener.Close()
 	b.handler = handler
+	b.connMu.Unlock()
+	defer listener.Close()
 
 	for {
 		c, err := listener.Accept()
@@ -52,8 +55,8 @@ func (b *UnixSocketBackend) Start(handler Handler) error {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		conn := &Conn{
-			ctx: ctx,
-			nConn: c,
+			ctx:    ctx,
+			nConn:  c,
 			cancel: cancel,
 		}
 
@@ -113,7 +116,7 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 		packet.Version = version
 		packet.Type = protocol.PacketType(pType)
 		packet.PayloadLength = pLen
-	
+
 		err = packet.DeserializePayload(reqBuf.Bytes())
 		if err != nil {
 			conn.writePacket(respBuf, protocol.NewErrPacket(err))
@@ -123,6 +126,9 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 		resp, err := b.handler.Handle(&packet, conn.ctx)
 		if err != nil {
 			conn.writePacket(respBuf, protocol.NewErrPacket(err))
+			reqBuf.Reset()
+			respBuf.Reset()
+			packet.Reset()
 			continue
 		}
 
@@ -137,8 +143,11 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 }
 
 func (b *UnixSocketBackend) Shutdown(ctx context.Context) error {
-	if b.listener != nil {
-		b.listener.Close()
+	b.connMu.Lock()
+	listener := b.listener
+	b.connMu.Unlock()
+	if listener != nil {
+		listener.Close()
 	}
 
 	b.connMu.Lock()
