@@ -20,7 +20,6 @@ Type - 1 byte
 Len - 2 byte
 Value - variadic
 */
-
 const (
 	ProtoVersionHeaderSize = 1
 	PacketTypeHeaderSize = 1
@@ -59,6 +58,12 @@ const (
 	//Generic error and success responses
 	PacketTypeError
 	PacketTypeSuccess
+)
+
+var (
+	ErrInvalidPacketLength = errors.New("invalid packet length")
+	ErrInvalidPacket = errors.New("invalid packet")
+	ErrInvalidPayloadLength = errors.New("invalid payload length")
 )
 
 type PayloadBlock struct {
@@ -148,7 +153,7 @@ func (p *Packet) Serialize(buf *bytes.Buffer) {
 
 func (p *Packet) Deserialize(data []byte) error {
 	if len(data) < PacketHeaderSize {
-		return errors.New("invalid packet")
+		return ErrInvalidPacket
 	}
 
 	p.Version = data[0]
@@ -160,20 +165,20 @@ func (p *Packet) Deserialize(data []byte) error {
 
 func (p *Packet) DeserializePayload(data []byte) error {
 	if uint32(len(data)) != p.PayloadLength {
-		return errors.New("invalid packet: payload length mismatch")
+		return ErrInvalidPayloadLength
 	}
 
 	blocksData := data
 
 	for len(blocksData) > 0 {
 		if len(blocksData) < PayloadBlockHeaderSize {
-			return errors.New("invalid packet")
+			return ErrInvalidPacket
 		}
 
 		tp := PayloadBlockType(blocksData[0])
 		blockLen := binary.BigEndian.Uint16(blocksData[1:3])
 		if len(blocksData) < int(PayloadBlockHeaderSize+blockLen) {
-			return errors.New("invalid packet")
+			return ErrInvalidPacket
 		}
 
 		value := blocksData[3 : 3+blockLen]

@@ -23,15 +23,14 @@ type UnixSocketBackend struct {
 	handler Handler
 
 	listener net.Listener
-	// TODO replace with slice of pointers
-	conns    map[*Conn]*Conn
+	conns    map[*Conn]struct{}
 	connMu   sync.Mutex
 }
 
 func NewUnixSocketBackend(socketPath string) *UnixSocketBackend {
 	return &UnixSocketBackend{
 		socketPath: socketPath,
-		conns: make(map[*Conn]*Conn),
+		conns: make(map[*Conn]struct{}),
 		connMu: sync.Mutex{},
 	}
 }
@@ -59,7 +58,7 @@ func (b *UnixSocketBackend) Start(handler Handler) error {
 		}
 
 		b.connMu.Lock()
-		b.conns[conn] = conn
+		b.conns[conn] = struct{}{}
 		b.connMu.Unlock()
 
 		conn.ctx = b.handler.OnConnect(ctx)
@@ -91,7 +90,6 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 
 	packet := protocol.Packet{}
 
-	// TODO check err on write errors
 	for {
 		_, err := io.ReadFull(conn.nConn, header[:])
 		if err != nil {
@@ -105,9 +103,10 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 		reqBuf.Grow(int(pLen))
 		n, err := io.CopyN(reqBuf, conn.nConn, int64(pLen))
 		if err != nil || n != int64(pLen) {
-			errPkt := protocol.NewErrPacket(errors.Join(err, errors.New("invalid packet length")))
-			errPkt.Serialize(respBuf)
-			conn.nConn.Write(respBuf.Bytes())
+			conn.writePacket(
+				respBuf,
+				protocol.NewErrPacket(errors.Join(err, protocol.ErrInvalidPacketLength)),
+			)
 			return
 		}
 
@@ -117,23 +116,17 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 	
 		err = packet.DeserializePayload(reqBuf.Bytes())
 		if err != nil {
-			errPkt := protocol.NewErrPacket(err)
-			errPkt.Serialize(respBuf)
-			conn.nConn.Write(respBuf.Bytes())
+			conn.writePacket(respBuf, protocol.NewErrPacket(err))
 			return
 		}
 
 		resp, err := b.handler.Handle(&packet, conn.ctx)
 		if err != nil {
-			errPkt := protocol.NewErrPacket(err)
-			errPkt.Serialize(respBuf)
-			conn.nConn.Write(respBuf.Bytes())
-			return
+			conn.writePacket(respBuf, protocol.NewErrPacket(err))
+			continue
 		}
 
-		resp.Serialize(respBuf)
-		_, err = conn.nConn.Write(respBuf.Bytes())
-		if err != nil {
+		if err := conn.writePacket(respBuf, resp); err != nil {
 			return
 		}
 
@@ -152,7 +145,7 @@ func (b *UnixSocketBackend) Shutdown(ctx context.Context) error {
 	defer b.connMu.Unlock()
 
 	var shutdownErr error
-	for _, conn := range b.conns {
+	for conn := range b.conns {
 		select {
 		case <-ctx.Done():
 			shutdownErr = ctx.Err()
