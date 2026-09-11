@@ -167,7 +167,7 @@ func (a *App) handleUnlock(pkt *protocol.Packet, s *Session, rp *protocol.Packet
 
 	err := a.conf.LockManager.Unlock(string(ns), string(k), string(sec))
 	if err != nil {
-		return err
+		return a.replyOrFail(rp, err)
 	}
 
 	s.ForgetLock(string(k))
