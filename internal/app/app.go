@@ -40,7 +40,7 @@ func (a *App) OnConnect(ctx context.Context) context.Context {
 	s := NewSession()
 	s.Ctx = ctx
 	context.AfterFunc(ctx, func() {
-		s.Close()
+		s.Close(a.conf.LockManager)
 	})
 
 	return context.WithValue(ctx, sessionKey, s)
@@ -89,8 +89,10 @@ func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) e
 	sessionNs := string(ns)
 	sessionKey := string(k)
 	sessionSec := sec
-	s.RememberLock(sessionKey, func() {
-		a.conf.LockManager.Unlock(sessionNs, sessionKey, sessionSec)
+	s.RememberLock(sessionKey, SessionLock{
+		Namespace: sessionNs,
+		Key:       sessionKey,
+		Secret:    sessionSec,
 	})
 	rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeSecret, []byte(sec)))
 
@@ -126,12 +128,6 @@ func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session
 	if ok {
 		success = 1
 		secValue = []byte(sec)
-		sessionNs := string(ns)
-		sessionKey := string(k)
-		sessionSec := sec
-		s.RememberLock(sessionKey, func() {
-			a.conf.LockManager.Unlock(sessionNs, sessionKey, sessionSec)
-		})
 	} else {
 		success = 0
 		secValue = []byte{0}

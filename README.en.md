@@ -6,8 +6,9 @@ Proof-of-concept for a distributed locking service aimed primarily at PHP in the
 
 ## Features
 
-- **Sessions** — each connection to the server is a separate session; held locks are tied to it and released automatically when the connection closes.
+- **Sessions** — each connection to the server is a separate session; non-TTL locks (`lock()`) are tied to it and released automatically when the connection closes.
 - **Blocking and non-blocking locks** — `lock()` waits until the lock is available; `tryLock()` returns immediately.
+- **TTL** — locks with TTL (`tryLock()`) are not bound to the session: they are not released on disconnect and live until the TTL expires or an explicit `unlock()`.
 - **Namespace isolation** — locks are scoped to a namespace; the same key in different namespaces does not conflict.
 
 ## POC limitations

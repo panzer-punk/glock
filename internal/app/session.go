@@ -1,32 +1,38 @@
 package app
 
-import "context"
+import (
+	"context"
+	"glock/internal/lock"
+)
 
-type LockRelease func()
+type SessionLock struct {
+	Namespace string
+	Key       string
+	Secret    string
+}
 
 type Session struct {
 	Ctx   context.Context
-	//TODO refactor session to use a map of locks or simpler data structure
-	locks map[string]LockRelease
+	locks map[string]SessionLock
 }
 
 func NewSession() *Session {
 	return &Session{
-		locks: make(map[string]LockRelease),
+		locks: make(map[string]SessionLock),
 	}
 }
 
-func (s *Session) RememberLock(k string, release LockRelease) {
-	s.locks[k] = release
+func (s *Session) RememberLock(k string, lock SessionLock) {
+	s.locks[k] = lock
 }
 
 func (s *Session) ForgetLock(k string) {
 	delete(s.locks, k)
 }
 
-func (s *Session) Close() error {
-	for k, release := range s.locks {
-		release()
+func (s *Session) Close(mngr *lock.LockManager) error {
+	for k, lock := range s.locks {
+		mngr.Unlock(lock.Namespace, lock.Key, lock.Secret)
 		s.ForgetLock(k)
 	}
 

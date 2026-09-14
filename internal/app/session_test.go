@@ -1,67 +1,96 @@
 package app
 
 import (
-	"sync/atomic"
+	"context"
+	"glock/internal/lock"
 	"testing"
+	"time"
 )
 
-func TestSession_CloseReleasesRememberedLocks(t *testing.T) {
-	s := NewSession()
-	var released atomic.Int32
-	s.RememberLock("a", func() { released.Add(1) })
-	s.RememberLock("b", func() { released.Add(1) })
+func sessionLockManager(t *testing.T) *lock.LockManager {
+	t.Helper()
+	factory := seqSecretFactory()
+	lm := lock.NewLockService()
+	lm.AddNamespace("ns", 16, factory)
+	return lm
+}
 
-	if err := s.Close(); err != nil {
+func acquireSessionLock(t *testing.T, lm *lock.LockManager, key string) SessionLock {
+	t.Helper()
+	sec, err := lm.Lock("ns", key, context.Background())
+	if err != nil {
+		t.Fatalf("lock %q: %v", key, err)
+	}
+	return SessionLock{
+		Namespace: "ns",
+		Key:       key,
+		Secret:    sec,
+	}
+}
+
+func assertLockFree(t *testing.T, lm *lock.LockManager, key string, wantFree bool) {
+	t.Helper()
+	sec, ok := lm.TryLock("ns", key, time.Minute, context.Background())
+	if ok {
+		_ = lm.Unlock("ns", key, sec)
+	}
+	if ok != wantFree {
+		t.Fatalf("key %q free=%v, want %v", key, ok, wantFree)
+	}
+}
+
+func TestSession_CloseReleasesRememberedLocks(t *testing.T) {
+	lm := sessionLockManager(t)
+	s := NewSession()
+	s.RememberLock("a", acquireSessionLock(t, lm, "a"))
+	s.RememberLock("b", acquireSessionLock(t, lm, "b"))
+
+	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if released.Load() != 2 {
-		t.Fatalf("released %d, want 2", released.Load())
-	}
+
+	assertLockFree(t, lm, "a", true)
+	assertLockFree(t, lm, "b", true)
 }
 
 func TestSession_ForgetLockSkipsRelease(t *testing.T) {
+	lm := sessionLockManager(t)
 	s := NewSession()
-	var released atomic.Int32
-	s.RememberLock("a", func() { released.Add(1) })
+	s.RememberLock("a", acquireSessionLock(t, lm, "a"))
 	s.ForgetLock("a")
 
-	if err := s.Close(); err != nil {
+	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if released.Load() != 0 {
-		t.Fatalf("released %d, want 0", released.Load())
-	}
+
+	assertLockFree(t, lm, "a", false)
 }
 
 func TestSession_RememberLockReplacesRelease(t *testing.T) {
+	lm := sessionLockManager(t)
 	s := NewSession()
-	var first, second atomic.Int32
-	s.RememberLock("a", func() { first.Add(1) })
-	s.RememberLock("a", func() { second.Add(1) })
+	s.RememberLock("slot", acquireSessionLock(t, lm, "first"))
+	s.RememberLock("slot", acquireSessionLock(t, lm, "second"))
 
-	if err := s.Close(); err != nil {
+	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if first.Load() != 0 {
-		t.Fatalf("first release called %d times", first.Load())
-	}
-	if second.Load() != 1 {
-		t.Fatalf("second release called %d times, want 1", second.Load())
-	}
+
+	assertLockFree(t, lm, "first", false)
+	assertLockFree(t, lm, "second", true)
 }
 
 func TestSession_CloseIdempotent(t *testing.T) {
+	lm := sessionLockManager(t)
 	s := NewSession()
-	var released atomic.Int32
-	s.RememberLock("a", func() { released.Add(1) })
+	s.RememberLock("a", acquireSessionLock(t, lm, "a"))
 
-	if err := s.Close(); err != nil {
+	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if err := s.Close(); err != nil {
+	if err := s.Close(lm); err != nil {
 		t.Fatalf("second close: %v", err)
 	}
-	if released.Load() != 1 {
-		t.Fatalf("released %d, want 1", released.Load())
-	}
+
+	assertLockFree(t, lm, "a", true)
 }
