@@ -20,7 +20,6 @@ var (
 
 type Config struct {
 	DefaultNamespace string
-	DefaultTTL       time.Duration
 
 	SecretFactory *lock.SecretFactory
 	LockManager   *lock.LockManager
@@ -81,7 +80,7 @@ func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) e
 		return nil
 	}
 
-	sec, err := a.conf.LockManager.Lock(string(ns), string(k), s.Ctx)
+	sec, err := a.conf.LockManager.Lock(string(ns), string(k), a.getTTL(rq), s.Ctx)
 	if err != nil {
 		return a.replyOrFail(rp, err)
 	}
@@ -112,15 +111,7 @@ func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session
 		return nil
 	}
 
-	var ttlDuration time.Duration
-	ttl, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeTTL)
-	if !ok {
-		ttlDuration = a.conf.DefaultTTL
-	} else {
-		ttlDuration = time.Duration(binary.BigEndian.Uint64(ttl)) * time.Nanosecond
-	}
-
-	sec, ok := a.conf.LockManager.TryLock(string(ns), string(k), ttlDuration, s.Ctx)
+	sec, ok := a.conf.LockManager.TryLock(string(ns), string(k), a.getTTL(rq), s.Ctx)
 
 	var success byte
 	var secValue []byte
@@ -186,4 +177,13 @@ func (a *App) getBlockValue(rq *protocol.Packet, tp protocol.PayloadBlockType) (
 	}
 
 	return b.Value, true
+}
+
+func (a *App) getTTL(rq *protocol.Packet) time.Duration {
+	raw, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeTTL)
+	if !ok {
+		return 0
+	}
+
+	return time.Duration(binary.BigEndian.Uint64(raw)) * time.Nanosecond
 }

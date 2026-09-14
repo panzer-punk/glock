@@ -22,7 +22,6 @@ func main() {
 	lockManager := lock.NewLockService()
 	conf := &app.Config{
 		DefaultNamespace: "default",
-		DefaultTTL:       1 * time.Second,
 		SecretFactory:    &secFactory,
 		LockManager:      lockManager,
 	}

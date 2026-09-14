@@ -43,13 +43,13 @@ func (ls *LockManager) getNamespace(name string) (*Namespace, bool) {
 	return ns, ok
 }
 
-func (ls *LockManager) Lock(namespace, key string, ctx context.Context) (string, error) {
+func (ls *LockManager) Lock(namespace, key string, ttl time.Duration, ctx context.Context) (string, error) {
 	ns, ok := ls.getNamespace(namespace)
 	if !ok {
 		return "", ErrNamespaceNotFound
 	}
 
-	return ns.Lock(key, ctx)
+	return ns.Lock(key, ttl, ctx)
 }
 
 func (ls *LockManager) TryLock(namespace, key string, ttl time.Duration, ctx context.Context) (string, bool) {

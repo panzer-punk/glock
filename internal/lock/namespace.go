@@ -31,11 +31,11 @@ func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) *Nam
 	}
 }
 
-func (ns *Namespace) Lock(key string, ctx context.Context) (string, error) {
+func (ns *Namespace) Lock(key string, ttl time.Duration, ctx context.Context) (string, error) {
 	b := ns.getBucket(key)
 	sec := ns.secFactory()
 
-	err := b.Lock(key, sec, ctx)
+	err := b.Lock(key, sec, ttl, ctx)
 	if err != nil {
 		return "", err
 	}
@@ -47,7 +47,7 @@ func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context)
 	b := ns.getBucket(key)
 	sec := ns.secFactory()
 
-	ok := b.TryLock(key, ttl, sec, ctx)
+	ok := b.TryLock(key, sec, ttl, ctx)
 	if !ok {
 		return "", false
 	}

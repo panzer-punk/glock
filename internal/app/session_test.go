@@ -17,7 +17,7 @@ func sessionLockManager(t *testing.T) *lock.LockManager {
 
 func acquireSessionLock(t *testing.T, lm *lock.LockManager, key string) SessionLock {
 	t.Helper()
-	sec, err := lm.Lock("ns", key, context.Background())
+	sec, err := lm.Lock("ns", key, 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock %q: %v", key, err)
 	}

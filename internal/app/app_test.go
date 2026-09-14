@@ -9,6 +9,7 @@ import (
 	"glock/internal/protocol"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -27,7 +28,6 @@ func newTestApp(t *testing.T) *App {
 	lm.AddNamespace("other", 16, factory)
 	return NewApp(&Config{
 		DefaultNamespace: "default",
-		DefaultTTL:       time.Minute,
 		SecretFactory:    &factory,
 		LockManager:      lm,
 	})
@@ -65,6 +65,16 @@ func pktTryLock(ns, key string, ttl time.Duration) *protocol.Packet {
 		p.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeTTL, raw))
 	}
 	return &p
+}
+
+func pktLockTTL(ns, key string, ttl time.Duration) *protocol.Packet {
+	p := pktLock(ns, key)
+	if ttl > 0 {
+		raw := make([]byte, 8)
+		binary.BigEndian.PutUint64(raw, uint64(ttl))
+		p.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeTTL, raw))
+	}
+	return p
 }
 
 func pktUnlock(ns, key, secret string) *protocol.Packet {
@@ -156,6 +166,38 @@ func TestApp_LockUnlock(t *testing.T) {
 	if !ok || success.Value[0] != 1 {
 		t.Fatal("expected key to be free after unlock")
 	}
+}
+
+func TestApp_LockTTLExpires(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a := newTestApp(t)
+		ctx := connectedCtx(t, a)
+
+		if _, err := callHandle(a, pktLockTTL("default", "res", time.Minute), ctx); err != nil {
+			t.Fatalf("lock: %v", err)
+		}
+
+		busy, err := callHandle(a, pktTryLock("default", "res", time.Minute), ctx)
+		if err != nil {
+			t.Fatalf("try lock while held: %v", err)
+		}
+		success, ok := busy.FindBlock(protocol.PayloadBlockTypeSuccess)
+		if !ok || success.Value[0] != 0 {
+			t.Fatal("expected lock to be held before ttl")
+		}
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+
+		free, err := callHandle(a, pktTryLock("default", "res", time.Minute), ctx)
+		if err != nil {
+			t.Fatalf("try lock after ttl: %v", err)
+		}
+		success, ok = free.FindBlock(protocol.PayloadBlockTypeSuccess)
+		if !ok || success.Value[0] != 1 {
+			t.Fatal("expected lock to expire")
+		}
+	})
 }
 
 func TestApp_LockDefaultNamespace(t *testing.T) {

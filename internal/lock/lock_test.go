@@ -80,7 +80,7 @@ func TestLock_CancelledContext(t *testing.T) {
 func TestTryLock_EmptySecret(t *testing.T) {
 	l := NewLock()
 
-	ok, err := l.TryLock(time.Minute, "", context.Background())
+	ok, err := l.TryLock("", time.Minute, context.Background())
 	if !errors.Is(err, ErrNilSecret) {
 		t.Fatalf("expected ErrNilSecret, got %v", err)
 	}
@@ -92,7 +92,7 @@ func TestTryLock_EmptySecret(t *testing.T) {
 func TestTryLock_InvalidTTL(t *testing.T) {
 	l := NewLock()
 
-	ok, err := l.TryLock(-time.Second, testSecret, context.Background())
+	ok, err := l.TryLock(testSecret, -time.Second, context.Background())
 	if !errors.Is(err, ErrInvalidTTL) {
 		t.Fatalf("expected ErrInvalidTTL, got %v", err)
 	}
@@ -100,7 +100,7 @@ func TestTryLock_InvalidTTL(t *testing.T) {
 		t.Fatal("expected TryLock to fail")
 	}
 
-	ok, err = l.TryLock(time.Minute, testSecret, context.Background())
+	ok, err = l.TryLock(testSecret, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock on free lock: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestTryLock_NilContext(t *testing.T) {
 	var nilCtx context.Context
 	l := NewLock()
 
-	ok, err := l.TryLock(time.Minute, testSecret, nilCtx)
+	ok, err := l.TryLock(testSecret, time.Minute, nilCtx)
 	if !errors.Is(err, ErrNilContext) {
 		t.Fatalf("expected ErrNilContext, got %v", err)
 	}
@@ -131,7 +131,7 @@ func TestTryLock_CancelledContextWhileFree(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ok, err := l.TryLock(time.Minute, testSecret, ctx)
+	ok, err := l.TryLock(testSecret, time.Minute, ctx)
 	if ok {
 		t.Fatal("expected TryLock to fail")
 	}
@@ -139,7 +139,7 @@ func TestTryLock_CancelledContextWhileFree(t *testing.T) {
 		t.Fatalf("expected context canceled, got %v", err)
 	}
 
-	ok, err = l.TryLock(time.Minute, testSecret, context.Background())
+	ok, err = l.TryLock(testSecret, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock after cancelled attempt: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestTryLock_CancelledContextWhileHeld(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ok, err := l.TryLock(time.Minute, testSecret, ctx)
+	ok, err := l.TryLock(testSecret, time.Minute, ctx)
 	if ok {
 		t.Fatal("expected TryLock to fail while lock is held")
 	}
@@ -177,7 +177,7 @@ func TestTryLock_CancelledContextWhileHeld(t *testing.T) {
 func TestTryLock_Success(t *testing.T) {
 	l := NewLock()
 
-	ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+	ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestUnlock_EmptySecret(t *testing.T) {
 		t.Fatalf("expected ErrNilSecret, got %v", err)
 	}
 
-	ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+	ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestTryLock_CancelledContextAfterAcquire(t *testing.T) {
 			err error
 		}, 1)
 		go func() {
-			ok, err := l.TryLock(time.Minute, testSecret, ctx)
+			ok, err := l.TryLock(testSecret, time.Minute, ctx)
 			errCh <- struct {
 				ok  bool
 				err error
@@ -292,7 +292,7 @@ func TestTryLock_CancelledContextAfterAcquire(t *testing.T) {
 			t.Fatalf("expected context canceled, got %v", result.err)
 		}
 
-		ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+		ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 		if err != nil {
 			t.Fatalf("try lock after cancelled acquire: %v", err)
 		}
@@ -312,7 +312,7 @@ func TestLock_AlreadyLocked(t *testing.T) {
 		t.Fatalf("lock: %v", err)
 	}
 
-	ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+	ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestLock_WrongSecretOnUnlock(t *testing.T) {
 		t.Fatalf("expected ErrInvalidSecret, got %v", err)
 	}
 
-	ok, err := l.TryLock(time.Minute, sec1, context.Background())
+	ok, err := l.TryLock(sec1, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestLock_TTL_Expires(t *testing.T) {
 			t.Fatalf("lock with ttl: %v", err)
 		}
 
-		ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+		ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 		if err != nil {
 			t.Fatalf("try lock while held: %v", err)
 		}
@@ -400,7 +400,7 @@ func TestLock_TTL_Expires(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 
-		ok, err = l.TryLock(time.Minute, testSecret, context.Background())
+		ok, err = l.TryLock(testSecret, time.Minute, context.Background())
 		if err != nil {
 			t.Fatalf("try lock after ttl: %v", err)
 		}
@@ -424,7 +424,7 @@ func TestLock_TTL_StillHeldBeforeExpiry(t *testing.T) {
 		time.Sleep(elapsed)
 		synctest.Wait()
 
-		ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+		ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 		if err != nil {
 			t.Fatalf("try lock before ttl: %v", err)
 		}
@@ -456,7 +456,7 @@ func TestLock_TTL_ExpireDoesNotReleaseRelockedWithoutTTL(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 
-		ok, err := l.TryLock(time.Minute, second, context.Background())
+		ok, err := l.TryLock(second, time.Minute, context.Background())
 		if err != nil {
 			t.Fatalf("try lock: %v", err)
 		}
@@ -558,7 +558,7 @@ func TestLock_ConcurrentTryLock(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
-			ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+			ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 			if err != nil {
 				t.Errorf("try lock: %v", err)
 				return
@@ -594,7 +594,7 @@ func TestLock_ConcurrentTryLockAfterRelease(t *testing.T) {
 	for range contenders {
 		go func() {
 			defer wg.Done()
-			ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+			ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 			if err != nil {
 				t.Errorf("try lock: %v", err)
 				return
@@ -619,7 +619,7 @@ func TestLock_ConcurrentTryLockAfterRelease(t *testing.T) {
 	for range contenders {
 		go func() {
 			defer wg.Done()
-			ok, err := l.TryLock(time.Minute, testSecret, context.Background())
+			ok, err := l.TryLock(testSecret, time.Minute, context.Background())
 			if err != nil {
 				t.Errorf("try lock: %v", err)
 				return
@@ -701,7 +701,7 @@ func TestLock_ConcurrentWrongSecretUnlockDoesNotRelease(t *testing.T) {
 		t.Fatalf("expected %d ErrInvalidSecret, got %d", goroutines, invalidSecret.Load())
 	}
 
-	ok, err := l.TryLock(time.Minute, owner, context.Background())
+	ok, err := l.TryLock(owner, time.Minute, context.Background())
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}

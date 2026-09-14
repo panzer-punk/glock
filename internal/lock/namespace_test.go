@@ -26,7 +26,7 @@ func TestNewNamespace(t *testing.T) {
 func TestNamespace_LockUnlock(t *testing.T) {
 	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
-	secret, err := ns.Lock("resource", context.Background())
+	secret, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -37,6 +37,27 @@ func TestNamespace_LockUnlock(t *testing.T) {
 	if err := ns.Unlock("resource", secret); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
+}
+
+func TestNamespace_LockTTLExpires(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ns := NewNamespace("test", 16, UUIDSecretFactory)
+
+		if _, err := ns.Lock("resource", time.Minute, context.Background()); err != nil {
+			t.Fatalf("lock: %v", err)
+		}
+
+		if _, ok := ns.TryLock("resource", time.Minute, context.Background()); ok {
+			t.Fatal("expected lock to be held before ttl")
+		}
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+
+		if _, ok := ns.TryLock("resource", time.Minute, context.Background()); !ok {
+			t.Fatal("expected lock to expire")
+		}
+	})
 }
 
 func TestNamespace_UnlockNotFound(t *testing.T) {
@@ -51,7 +72,7 @@ func TestNamespace_UnlockNotFound(t *testing.T) {
 func TestNamespace_UnlockWrongSecret(t *testing.T) {
 	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
-	owner, err := ns.Lock("resource", context.Background())
+	owner, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -91,7 +112,7 @@ func TestNamespace_TryLockSuccess(t *testing.T) {
 func TestNamespace_TryLockAlreadyHeld(t *testing.T) {
 	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
-	owner, err := ns.Lock("resource", context.Background())
+	owner, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -112,7 +133,7 @@ func TestNamespace_TryLockAlreadyHeld(t *testing.T) {
 func TestNamespace_DifferentKeysAreIndependent(t *testing.T) {
 	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
-	first, err := ns.Lock("a", context.Background())
+	first, err := ns.Lock("a", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock a: %v", err)
 	}
@@ -133,7 +154,7 @@ func TestNamespace_DifferentKeysAreIndependent(t *testing.T) {
 func TestNamespace_LockBlocksSameKey(t *testing.T) {
 	ns := NewNamespace("test", 16, UUIDSecretFactory)
 
-	owner, err := ns.Lock("resource", context.Background())
+	owner, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -142,7 +163,7 @@ func TestNamespace_LockBlocksSameKey(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		_, err := ns.Lock("resource", ctx)
+		_, err := ns.Lock("resource", 0, ctx)
 		done <- err
 	}()
 
@@ -166,7 +187,7 @@ func TestNamespace_LockCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	secret, err := ns.Lock("resource", ctx)
+	secret, err := ns.Lock("resource", 0, ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context canceled, got %v", err)
 	}
@@ -187,7 +208,7 @@ func TestNamespace_ConcurrentDifferentKeys(t *testing.T) {
 			defer wg.Done()
 			key := string(rune('a' + id))
 
-			secret, err := ns.Lock(key, context.Background())
+			secret, err := ns.Lock(key, 0, context.Background())
 			if err != nil {
 				t.Errorf("lock %q: %v", key, err)
 				return
@@ -235,7 +256,7 @@ func TestNamespace_ConcurrentLockHandoff(t *testing.T) {
 		const waiters = 10
 		var acquired atomic.Int32
 
-		secret, err := ns.Lock("resource", context.Background())
+		secret, err := ns.Lock("resource", 0, context.Background())
 		if err != nil {
 			t.Fatalf("lock: %v", err)
 		}
@@ -245,7 +266,7 @@ func TestNamespace_ConcurrentLockHandoff(t *testing.T) {
 		for range waiters {
 			go func() {
 				defer wg.Done()
-				s, err := ns.Lock("resource", context.Background())
+				s, err := ns.Lock("resource", 0, context.Background())
 				if err != nil {
 					t.Errorf("lock: %v", err)
 					return

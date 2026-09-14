@@ -103,7 +103,7 @@ func (l *Lock) initTTL(ttl time.Duration, secret string) {
 	})
 }
 
-func (l *Lock) TryLock(ttl time.Duration, secret string, ctx context.Context) (bool, error) {
+func (l *Lock) TryLock(secret string, ttl time.Duration, ctx context.Context) (bool, error) {
 	err := l.Check(secret, ttl, ctx)
 	if err != nil {
 		return false, err

@@ -18,10 +18,10 @@ func NewBucket() *Bucket {
 	return &Bucket{mu: sync.RWMutex{}, locks: make(map[string]*Lock)}
 }
 
-func (b *Bucket) Lock(key string, sec string, ctx context.Context) error {
+func (b *Bucket) Lock(key string, sec string, ttl time.Duration, ctx context.Context) error {
 	l := b.findLock(key)
 
-	return l.Lock(sec, 0, ctx)
+	return l.Lock(sec, ttl, ctx)
 }
 
 func (b *Bucket) findLock(key string) *Lock {
@@ -38,10 +38,10 @@ func (b *Bucket) findLock(key string) *Lock {
 	return l
 }
 
-func (b *Bucket) TryLock(key string, ttl time.Duration, sec string, ctx context.Context) bool {
+func (b *Bucket) TryLock(key string, sec string, ttl time.Duration, ctx context.Context) bool {
 	l := b.findLock(key)
 
-	ok, _ := l.TryLock(ttl, sec, ctx)
+	ok, _ := l.TryLock(sec, ttl, ctx)
 
 	return ok
 }

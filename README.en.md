@@ -22,7 +22,7 @@ This is **not the final version** of the POC. The following is intentionally out
 
 ## TODO
 
-- [ ] **Go tests**
+- [x] **Go tests**
 - [ ] **Basic fault tolerance** — server failure behavior and lock recovery
 - [ ] **Persistence** — persist namespaces and TTL locks so they survive a server restart
 - [ ] **Fencing token** — a `SecretFactory` that issues a monotonically increasing fencing token instead of a UUID
