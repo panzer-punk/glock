@@ -7,11 +7,11 @@ import (
 )
 
 type Namespace struct {
-	Name    string
+	Name       string
 	BucketsCnt uint32
 	secFactory SecretFactory
-	buckets []*Bucket
-	locks   map[string]*Lock
+	buckets    []*Bucket
+	locks      map[string]*Lock
 }
 
 func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) *Namespace {
@@ -23,11 +23,11 @@ func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) *Nam
 	}
 
 	return &Namespace{
-		Name:    name,
+		Name:       name,
 		BucketsCnt: bucketsCnt,
 		secFactory: secFactory,
-		buckets: buckets,
-		locks:   make(map[string]*Lock),
+		buckets:    buckets,
+		locks:      make(map[string]*Lock),
 	}
 }
 

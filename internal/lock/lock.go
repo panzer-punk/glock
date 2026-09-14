@@ -77,7 +77,6 @@ func (l *Lock) Check(secret string, ttl time.Duration, ctx context.Context) erro
 	return nil
 }
 
-
 func (l *Lock) sync(f func(), ctx context.Context) error {
 	select {
 	case <-ctx.Done():

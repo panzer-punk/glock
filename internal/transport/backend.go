@@ -13,8 +13,8 @@ type Backend interface {
 }
 
 type Conn struct {
-	nConn net.Conn
-	ctx context.Context
+	nConn  net.Conn
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 

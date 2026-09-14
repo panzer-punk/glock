@@ -21,14 +21,14 @@ Len - 2 byte
 Value - variadic
 */
 const (
-	ProtoVersionHeaderSize = 1
-	PacketTypeHeaderSize = 1
+	ProtoVersionHeaderSize        = 1
+	PacketTypeHeaderSize          = 1
 	PacketPayloadLengthHeaderSize = 4
-	PacketHeaderSize = ProtoVersionHeaderSize + PacketTypeHeaderSize + PacketPayloadLengthHeaderSize
+	PacketHeaderSize              = ProtoVersionHeaderSize + PacketTypeHeaderSize + PacketPayloadLengthHeaderSize
 
-	PayloadBlockTypeHeaderSize = 1
+	PayloadBlockTypeHeaderSize   = 1
 	PayloadBlockLengthHeaderSize = 2
-	PayloadBlockHeaderSize = PayloadBlockTypeHeaderSize + PayloadBlockLengthHeaderSize
+	PayloadBlockHeaderSize       = PayloadBlockTypeHeaderSize + PayloadBlockLengthHeaderSize
 )
 
 type PayloadBlockType uint8
@@ -41,7 +41,7 @@ const (
 	PayloadBlockTypeSecret
 
 	PayloadBlockTypeSuccess //success boolean
-	PayloadBlockTypeError //error message
+	PayloadBlockTypeError   //error message
 
 	//size of blocks array in Packet
 	blocksSize = PayloadBlockTypeError + 1
@@ -61,15 +61,15 @@ const (
 )
 
 var (
-	ErrInvalidPacketLength = errors.New("invalid packet length")
-	ErrInvalidPacket = errors.New("invalid packet")
+	ErrInvalidPacketLength  = errors.New("invalid packet length")
+	ErrInvalidPacket        = errors.New("invalid packet")
 	ErrInvalidPayloadLength = errors.New("invalid payload length")
 )
 
 type PayloadBlock struct {
 	//Headers
-	Type  PayloadBlockType
-	Len   uint16
+	Type PayloadBlockType
+	Len  uint16
 
 	//Payload
 	Value []byte
@@ -96,7 +96,7 @@ func NewPayloadBlock(tp PayloadBlockType, value []byte) PayloadBlock {
 	return PayloadBlock{
 		Type:  tp,
 		Len:   uint16(len(value)),
-		Value: value,	
+		Value: value,
 	}
 }
 
@@ -107,7 +107,7 @@ type Packet struct {
 	PayloadLength uint32
 
 	//Payload
-	Blocks        [blocksSize]PayloadBlock
+	Blocks [blocksSize]PayloadBlock
 }
 
 const (
@@ -185,8 +185,8 @@ func (p *Packet) DeserializePayload(data []byte) error {
 
 		if int(tp) < len(p.Blocks) {
 			p.Blocks[tp] = PayloadBlock{
-				Type: tp,
-				Len: blockLen,
+				Type:  tp,
+				Len:   blockLen,
 				Value: value,
 			}
 		}

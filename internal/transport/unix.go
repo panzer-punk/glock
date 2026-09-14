@@ -127,8 +127,8 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 		}
 
 		/**
-			Handle is responsible for writing the response packet to the response buffer.
-			If it returns an error, the connection is closed with error packet.
+		Handle is responsible for writing the response packet to the response buffer.
+		If it returns an error, the connection is closed with error packet.
 		*/
 		err = b.handler.Handle(&rq, &rp, conn.ctx)
 		if err != nil {
