@@ -10,18 +10,18 @@ import (
 var ErrLockNotFound = errors.New("lock not found")
 
 type Bucket struct {
-	mu sync.RWMutex
+	mu    sync.RWMutex
 	locks map[string]*Lock
 }
 
 func NewBucket() *Bucket {
-	return  &Bucket{mu: sync.RWMutex{}, locks: make(map[string]*Lock)}
+	return &Bucket{mu: sync.RWMutex{}, locks: make(map[string]*Lock)}
 }
 
 func (b *Bucket) Lock(key string, sec string, ctx context.Context) error {
 	l := b.findLock(key)
 
-	return l.Lock(ctx, sec)
+	return l.Lock(sec, 0, ctx)
 }
 
 func (b *Bucket) findLock(key string) *Lock {
@@ -41,7 +41,7 @@ func (b *Bucket) findLock(key string) *Lock {
 func (b *Bucket) TryLock(key string, ttl time.Duration, sec string, ctx context.Context) bool {
 	l := b.findLock(key)
 
-	ok, _ := l.TryLock(ctx, ttl, sec)
+	ok, _ := l.TryLock(ttl, sec, ctx)
 
 	return ok
 }
