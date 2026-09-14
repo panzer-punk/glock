@@ -91,7 +91,8 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 		packetBufferPool.Put(respBuf)
 	}()
 
-	packet := protocol.Packet{}
+	rq := protocol.Packet{}
+	rp := protocol.Packet{}
 
 	for {
 		_, err := io.ReadFull(conn.nConn, header[:])
@@ -113,32 +114,36 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 			return
 		}
 
-		packet.Version = version
-		packet.Type = protocol.PacketType(pType)
-		packet.PayloadLength = pLen
+		rq.Version = version
+		rq.Type = protocol.PacketType(pType)
+		rq.PayloadLength = pLen
 
-		err = packet.DeserializePayload(reqBuf.Bytes())
+		rp.Version = protocol.ProtoVersion
+
+		err = rq.DeserializePayload(reqBuf.Bytes())
 		if err != nil {
 			conn.writePacket(respBuf, protocol.NewErrPacket(err))
 			return
 		}
 
-		resp, err := b.handler.Handle(&packet, conn.ctx)
+		/**
+			Handle is responsible for writing the response packet to the response buffer.
+			If it returns an error, the connection is closed with error packet.
+		*/
+		err = b.handler.Handle(&rq, &rp, conn.ctx)
 		if err != nil {
 			conn.writePacket(respBuf, protocol.NewErrPacket(err))
-			reqBuf.Reset()
-			respBuf.Reset()
-			packet.Reset()
-			continue
+			return
 		}
 
-		if err := conn.writePacket(respBuf, resp); err != nil {
+		if err := conn.writePacket(respBuf, &rp); err != nil {
 			return
 		}
 
 		reqBuf.Reset()
 		respBuf.Reset()
-		packet.Reset()
+		rq.Reset()
+		rp.Reset()
 	}
 }
 

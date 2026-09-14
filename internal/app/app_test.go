@@ -81,6 +81,15 @@ func pktUnlock(ns, key, secret string) *protocol.Packet {
 	return &p
 }
 
+func callHandle(a *App, rq *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
+	rp := protocol.Packet{
+		Version: protocol.ProtoVersion,
+		Type:    protocol.PacketTypeSuccess,
+	}
+	err := a.Handle(rq, &rp, ctx)
+	return &rp, err
+}
+
 func blockString(p *protocol.Packet, tp protocol.PayloadBlockType) (string, bool) {
 	b, ok := p.FindBlock(tp)
 	if !ok {
@@ -92,7 +101,7 @@ func blockString(p *protocol.Packet, tp protocol.PayloadBlockType) (string, bool
 func TestApp_HandleSessionNotFound(t *testing.T) {
 	a := newTestApp(t)
 	p := pktLock("default", "k")
-	_, err := a.Handle(p, context.Background())
+	_, err := callHandle(a, p, context.Background())
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -102,7 +111,7 @@ func TestApp_LockMissingKey(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	rp, err := a.Handle(pktLock("default", ""), ctx)
+	rp, err := callHandle(a, pktLock("default", ""), ctx)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -119,7 +128,7 @@ func TestApp_LockUnlock(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	locked, err := a.Handle(pktLock("default", "res"), ctx)
+	locked, err := callHandle(a, pktLock("default", "res"), ctx)
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -131,7 +140,7 @@ func TestApp_LockUnlock(t *testing.T) {
 		t.Fatalf("secret: ok=%v value=%q", ok, sec)
 	}
 
-	unlocked, err := a.Handle(pktUnlock("default", "res", sec), ctx)
+	unlocked, err := callHandle(a, pktUnlock("default", "res", sec), ctx)
 	if err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
@@ -139,7 +148,7 @@ func TestApp_LockUnlock(t *testing.T) {
 		t.Fatalf("unlock type: got %d", unlocked.Type)
 	}
 
-	again, err := a.Handle(pktTryLock("default", "res", time.Minute), ctx)
+	again, err := callHandle(a, pktTryLock("default", "res", time.Minute), ctx)
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -153,7 +162,7 @@ func TestApp_LockDefaultNamespace(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	locked, err := a.Handle(pktLock("", "res"), ctx)
+	locked, err := callHandle(a, pktLock("", "res"), ctx)
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
@@ -162,7 +171,7 @@ func TestApp_LockDefaultNamespace(t *testing.T) {
 		t.Fatal("expected secret")
 	}
 
-	if _, err := a.Handle(pktUnlock("", "res", sec), ctx); err != nil {
+	if _, err := callHandle(a, pktUnlock("", "res", sec), ctx); err != nil {
 		t.Fatalf("unlock via default namespace: %v", err)
 	}
 }
@@ -171,7 +180,7 @@ func TestApp_LockUnknownNamespace(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	rp, err := a.Handle(pktLock("missing", "res"), ctx)
+	rp, err := callHandle(a, pktLock("missing", "res"), ctx)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -187,7 +196,7 @@ func TestApp_LockUnknownNamespace(t *testing.T) {
 func TestApp_LockCancelledContext(t *testing.T) {
 	a := newTestApp(t)
 	holder := connectedCtx(t, a)
-	if _, err := a.Handle(pktLock("default", "res"), holder); err != nil {
+	if _, err := callHandle(a, pktLock("default", "res"), holder); err != nil {
 		t.Fatalf("holder lock: %v", err)
 	}
 
@@ -195,7 +204,7 @@ func TestApp_LockCancelledContext(t *testing.T) {
 	cancel()
 	waiter := a.OnConnect(ctx)
 
-	_, err := a.Handle(pktLock("default", "res"), waiter)
+	_, err := callHandle(a, pktLock("default", "res"), waiter)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -205,7 +214,7 @@ func TestApp_TryLockMissingKey(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	rp, err := a.Handle(pktTryLock("default", "", time.Minute), ctx)
+	rp, err := callHandle(a, pktTryLock("default", "", time.Minute), ctx)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -217,12 +226,12 @@ func TestApp_TryLockMissingKey(t *testing.T) {
 func TestApp_TryLockBusy(t *testing.T) {
 	a := newTestApp(t)
 	holder := connectedCtx(t, a)
-	if _, err := a.Handle(pktLock("default", "res"), holder); err != nil {
+	if _, err := callHandle(a, pktLock("default", "res"), holder); err != nil {
 		t.Fatalf("holder lock: %v", err)
 	}
 
 	ctx := connectedCtx(t, a)
-	rp, err := a.Handle(pktTryLock("default", "res", time.Minute), ctx)
+	rp, err := callHandle(a, pktTryLock("default", "res", time.Minute), ctx)
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -236,7 +245,7 @@ func TestApp_TryLockSuccess(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	rp, err := a.Handle(pktTryLock("other", "res", time.Minute), ctx)
+	rp, err := callHandle(a, pktTryLock("other", "res", time.Minute), ctx)
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -256,7 +265,7 @@ func TestApp_UnlockMissingSecret(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	rp, err := a.Handle(pktUnlock("default", "res", ""), ctx)
+	rp, err := callHandle(a, pktUnlock("default", "res", ""), ctx)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -272,11 +281,11 @@ func TestApp_UnlockMissingSecret(t *testing.T) {
 func TestApp_UnlockWrongSecret(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
-	if _, err := a.Handle(pktLock("default", "res"), ctx); err != nil {
+	if _, err := callHandle(a, pktLock("default", "res"), ctx); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
 
-	rp, err := a.Handle(pktUnlock("default", "res", "wrong"), ctx)
+	rp, err := callHandle(a, pktUnlock("default", "res", "wrong"), ctx)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -288,7 +297,7 @@ func TestApp_UnlockWrongSecret(t *testing.T) {
 		t.Fatalf("error: ok=%v msg=%q", ok, msg)
 	}
 
-	busy, err := a.Handle(pktTryLock("default", "res", time.Minute), ctx)
+	busy, err := callHandle(a, pktTryLock("default", "res", time.Minute), ctx)
 	if err != nil {
 		t.Fatalf("try lock: %v", err)
 	}
@@ -303,7 +312,7 @@ func TestApp_UnknownPacketType(t *testing.T) {
 	ctx := connectedCtx(t, a)
 
 	p := protocol.NewPacket(protocol.PacketType(99))
-	rp, err := a.Handle(&p, ctx)
+	rp, err := callHandle(a, &p, ctx)
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -321,7 +330,7 @@ func TestApp_SessionCloseReleasesLock(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sessionCtx := a.OnConnect(ctx)
 
-	if _, err := a.Handle(pktLock("default", "res"), sessionCtx); err != nil {
+	if _, err := callHandle(a, pktLock("default", "res"), sessionCtx); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
 	cancel()
@@ -329,7 +338,7 @@ func TestApp_SessionCloseReleasesLock(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	other := connectedCtx(t, a)
 	for {
-		rp, err := a.Handle(pktTryLock("default", "res", time.Minute), other)
+		rp, err := callHandle(a, pktTryLock("default", "res", time.Minute), other)
 		if err != nil {
 			t.Fatalf("try lock: %v", err)
 		}
@@ -348,11 +357,11 @@ func TestApp_NamespacesAreIsolated(t *testing.T) {
 	a := newTestApp(t)
 	ctx := connectedCtx(t, a)
 
-	if _, err := a.Handle(pktLock("default", "res"), ctx); err != nil {
+	if _, err := callHandle(a, pktLock("default", "res"), ctx); err != nil {
 		t.Fatalf("lock default: %v", err)
 	}
 
-	rp, err := a.Handle(pktTryLock("other", "res", time.Minute), ctx)
+	rp, err := callHandle(a, pktTryLock("other", "res", time.Minute), ctx)
 	if err != nil {
 		t.Fatalf("try lock other: %v", err)
 	}

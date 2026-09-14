@@ -46,37 +46,35 @@ func (a *App) OnConnect(ctx context.Context) context.Context {
 	return context.WithValue(ctx, sessionKey, s)
 }
 
-func (a *App) Handle(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
+func (a *App) Handle(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
 	s, ok := ctx.Value(sessionKey).(*Session)
 	if !ok {
-		return nil, ErrSessionNotFound
+		return ErrSessionNotFound
 	}
 
-	rp := protocol.NewPacket(protocol.PacketTypeSuccess)
-
 	var err error
-	switch pkt.Type {
+	switch rq.Type {
 	case protocol.PacketTypeLock:
-		err = a.handleLock(pkt, s, &rp)
+		err = a.handleLock(rq, rp, s)
 	case protocol.PacketTypeTryLock:
-		err = a.handleTryLock(pkt, s, &rp)
+		err = a.handleTryLock(rq, rp, s)
 	case protocol.PacketTypeUnlock:
-		err = a.handleUnlock(pkt, s, &rp)
+		err = a.handleUnlock(rq, rp, s)
 	default:
 		rp.Type = protocol.PacketTypeError
 		rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeError, []byte(ErrUnknownPacket.Error())))
 	}
 
-	return &rp, err
+	return err
 }
 
-func (a *App) handleLock(pkt *protocol.Packet, s *Session, rp *protocol.Packet) error {
-	ns, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeNamespace)
+func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) error {
+	ns, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeNamespace)
 	if !ok {
 		ns = []byte(a.conf.DefaultNamespace)
 	}
 
-	k, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeKey)
+	k, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeKey)
 	if !ok {
 		rp.Type = protocol.PacketTypeError
 		rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeError, []byte(ErrMissingKey.Error())))
@@ -99,13 +97,13 @@ func (a *App) handleLock(pkt *protocol.Packet, s *Session, rp *protocol.Packet) 
 	return nil
 }
 
-func (a *App) handleTryLock(pkt *protocol.Packet, s *Session, rp *protocol.Packet) error {
-	ns, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeNamespace)
+func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) error {
+	ns, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeNamespace)
 	if !ok {
 		ns = []byte(a.conf.DefaultNamespace)
 	}
 
-	k, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeKey)
+	k, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeKey)
 	if !ok {
 		rp.Type = protocol.PacketTypeError
 		rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeError, []byte(ErrMissingKey.Error())))
@@ -113,7 +111,7 @@ func (a *App) handleTryLock(pkt *protocol.Packet, s *Session, rp *protocol.Packe
 	}
 
 	var ttlDuration time.Duration
-	ttl, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeTTL)
+	ttl, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeTTL)
 	if !ok {
 		ttlDuration = a.conf.DefaultTTL
 	} else {
@@ -145,20 +143,20 @@ func (a *App) handleTryLock(pkt *protocol.Packet, s *Session, rp *protocol.Packe
 	return nil
 }
 
-func (a *App) handleUnlock(pkt *protocol.Packet, s *Session, rp *protocol.Packet) error {
-	ns, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeNamespace)
+func (a *App) handleUnlock(rq *protocol.Packet, rp *protocol.Packet, s *Session) error {
+	ns, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeNamespace)
 	if !ok {
 		ns = []byte(a.conf.DefaultNamespace)
 	}
 
-	k, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeKey)
+	k, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeKey)
 	if !ok {
 		rp.Type = protocol.PacketTypeError
 		rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeError, []byte(ErrMissingKey.Error())))
 		return nil
 	}
 
-	sec, ok := a.getBlockValue(pkt, protocol.PayloadBlockTypeSecret)
+	sec, ok := a.getBlockValue(rq, protocol.PayloadBlockTypeSecret)
 	if !ok {
 		rp.Type = protocol.PacketTypeError
 		rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeError, []byte(ErrMissingSecret.Error())))
@@ -185,8 +183,8 @@ func (a *App) replyOrFail(rp *protocol.Packet, err error) error {
 	return nil
 }
 
-func (a *App) getBlockValue(pkt *protocol.Packet, tp protocol.PayloadBlockType) ([]byte, bool) {
-	b, ok := pkt.FindBlock(tp)
+func (a *App) getBlockValue(rq *protocol.Packet, tp protocol.PayloadBlockType) ([]byte, bool) {
+	b, ok := rq.FindBlock(tp)
 	if !ok {
 		return nil, false
 	}

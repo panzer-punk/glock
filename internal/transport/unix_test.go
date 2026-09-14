@@ -16,7 +16,7 @@ import (
 
 type handlerStub struct {
 	onConnect func(context.Context) context.Context
-	handle    func(*protocol.Packet, context.Context) (*protocol.Packet, error)
+	handle    func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error
 }
 
 func (h *handlerStub) OnConnect(ctx context.Context) context.Context {
@@ -26,12 +26,12 @@ func (h *handlerStub) OnConnect(ctx context.Context) context.Context {
 	return ctx
 }
 
-func (h *handlerStub) Handle(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
+func (h *handlerStub) Handle(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
 	if h.handle != nil {
-		return h.handle(pkt, ctx)
+		return h.handle(rq, rp, ctx)
 	}
-	p := protocol.NewPacket(protocol.PacketTypeSuccess)
-	return &p, nil
+	rp.Type = protocol.PacketTypeSuccess
+	return nil
 }
 
 func startTestBackend(t *testing.T, h Handler) (*UnixSocketBackend, string) {
@@ -128,17 +128,17 @@ func lockRequest(key string) protocol.Packet {
 
 func TestUnixSocketBackend_RequestResponse(t *testing.T) {
 	h := &handlerStub{
-		handle: func(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
-			if pkt.Type != protocol.PacketTypeLock {
-				t.Errorf("type: got %d, want lock", pkt.Type)
+		handle: func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
+			if rq.Type != protocol.PacketTypeLock {
+				t.Errorf("type: got %d, want lock", rq.Type)
 			}
-			key, ok := pkt.FindBlock(protocol.PayloadBlockTypeKey)
+			key, ok := rq.FindBlock(protocol.PayloadBlockTypeKey)
 			if !ok || string(key.Value) != "order:1" {
 				t.Errorf("key: ok=%v value=%q", ok, key.Value)
 			}
-			rp := protocol.NewPacket(protocol.PacketTypeSuccess)
+			rp.Type = protocol.PacketTypeSuccess
 			rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeSecret, []byte("sec")))
-			return &rp, nil
+			return nil
 		},
 	}
 
@@ -163,12 +163,12 @@ func TestUnixSocketBackend_OnConnectContext(t *testing.T) {
 		onConnect: func(ctx context.Context) context.Context {
 			return context.WithValue(ctx, ctxKey{}, "session")
 		},
-		handle: func(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
+		handle: func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
 			if ctx.Value(ctxKey{}) != "session" {
-				return nil, errors.New("session missing from context")
+				return errors.New("session missing from context")
 			}
-			rp := protocol.NewPacket(protocol.PacketTypeSuccess)
-			return &rp, nil
+			rp.Type = protocol.PacketTypeSuccess
+			return nil
 		},
 	}
 
@@ -184,12 +184,12 @@ func TestUnixSocketBackend_OnConnectContext(t *testing.T) {
 func TestUnixSocketBackend_TwoRequestsSameConnection(t *testing.T) {
 	var n atomic.Int32
 	h := &handlerStub{
-		handle: func(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
-			key, _ := pkt.FindBlock(protocol.PayloadBlockTypeKey)
+		handle: func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
+			key, _ := rq.FindBlock(protocol.PayloadBlockTypeKey)
 			n.Add(1)
-			rp := protocol.NewPacket(protocol.PacketTypeSuccess)
+			rp.Type = protocol.PacketTypeSuccess
 			rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeSecret, key.Value))
-			return &rp, nil
+			return nil
 		},
 	}
 
@@ -212,38 +212,6 @@ func TestUnixSocketBackend_TwoRequestsSameConnection(t *testing.T) {
 
 	if n.Load() != 2 {
 		t.Fatalf("handles: got %d, want 2", n.Load())
-	}
-}
-
-func TestUnixSocketBackend_HandleErrorKeepsConnection(t *testing.T) {
-	var n atomic.Int32
-	h := &handlerStub{
-		handle: func(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
-			if n.Add(1) == 1 {
-				return nil, errors.New("logic broken")
-			}
-			rp := protocol.NewPacket(protocol.PacketTypeSuccess)
-			return &rp, nil
-		},
-	}
-
-	_, path := startTestBackend(t, h)
-	c := dialTest(t, path)
-
-	writePacket(t, c, lockRequest("a"))
-	errPkt := readPacket(t, c)
-	if errPkt.Type != protocol.PacketTypeError {
-		t.Fatalf("expected error packet, got %d", errPkt.Type)
-	}
-	msg, ok := errPkt.FindBlock(protocol.PayloadBlockTypeError)
-	if !ok || string(msg.Value) != "logic broken" {
-		t.Fatalf("error message: ok=%v value=%q", ok, msg.Value)
-	}
-
-	writePacket(t, c, lockRequest("b"))
-	okPkt := readPacket(t, c)
-	if okPkt.Type != protocol.PacketTypeSuccess {
-		t.Fatalf("expected success after handler error, got %d", okPkt.Type)
 	}
 }
 
@@ -356,10 +324,10 @@ func TestUnixSocketBackend_StartFailsIfPathBusy(t *testing.T) {
 func TestUnixSocketBackend_TwoClients(t *testing.T) {
 	var n atomic.Int32
 	h := &handlerStub{
-		handle: func(pkt *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
+		handle: func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
 			n.Add(1)
-			rp := protocol.NewPacket(protocol.PacketTypeSuccess)
-			return &rp, nil
+			rp.Type = protocol.PacketTypeSuccess
+			return nil
 		},
 	}
 
