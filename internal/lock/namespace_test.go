@@ -10,8 +10,26 @@ import (
 	"time"
 )
 
+func newTestNamespace(t *testing.T) *Namespace {
+	t.Helper()
+	ns, err := NewNamespace("test", 16, UUIDSecretFactory)
+	if err != nil {
+		t.Fatalf("NewNamespace: %v", err)
+	}
+	return ns
+}
+
+func tryLockNS(t *testing.T, ns *Namespace, key string) (string, bool) {
+	t.Helper()
+	sec, ok, err := ns.TryLock(key, time.Minute, context.Background())
+	if err != nil {
+		t.Fatalf("try lock %q: %v", key, err)
+	}
+	return sec, ok
+}
+
 func TestNewNamespace(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 	if ns.Name != "test" {
 		t.Fatalf("name: got %q, want test", ns.Name)
 	}
@@ -24,7 +42,7 @@ func TestNewNamespace(t *testing.T) {
 }
 
 func TestNamespace_LockUnlock(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	secret, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
@@ -41,27 +59,27 @@ func TestNamespace_LockUnlock(t *testing.T) {
 
 func TestNamespace_LockTTLExpires(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ns := NewNamespace("test", 16, UUIDSecretFactory)
+		ns := newTestNamespace(t)
 
 		if _, err := ns.Lock("resource", time.Minute, context.Background()); err != nil {
 			t.Fatalf("lock: %v", err)
 		}
 
-		if _, ok := ns.TryLock("resource", time.Minute, context.Background()); ok {
+		if _, ok := tryLockNS(t, ns, "resource"); ok {
 			t.Fatal("expected lock to be held before ttl")
 		}
 
 		time.Sleep(time.Minute)
 		synctest.Wait()
 
-		if _, ok := ns.TryLock("resource", time.Minute, context.Background()); !ok {
+		if _, ok := tryLockNS(t, ns, "resource"); !ok {
 			t.Fatal("expected lock to expire")
 		}
 	})
 }
 
 func TestNamespace_UnlockNotFound(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	err := ns.Unlock("missing", "any-secret")
 	if !errors.Is(err, ErrLockNotFound) {
@@ -70,7 +88,7 @@ func TestNamespace_UnlockNotFound(t *testing.T) {
 }
 
 func TestNamespace_UnlockWrongSecret(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	owner, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
@@ -83,8 +101,7 @@ func TestNamespace_UnlockWrongSecret(t *testing.T) {
 		t.Fatalf("expected ErrInvalidSecret, got %v", err)
 	}
 
-	_, ok := ns.TryLock("resource", time.Minute, context.Background())
-	if ok {
+	if _, ok := tryLockNS(t, ns, "resource"); ok {
 		t.Fatal("lock was released by wrong secret unlock")
 	}
 
@@ -94,9 +111,9 @@ func TestNamespace_UnlockWrongSecret(t *testing.T) {
 }
 
 func TestNamespace_TryLockSuccess(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
-	secret, ok := ns.TryLock("resource", time.Minute, context.Background())
+	secret, ok := tryLockNS(t, ns, "resource")
 	if !ok {
 		t.Fatal("expected try lock to succeed")
 	}
@@ -110,14 +127,14 @@ func TestNamespace_TryLockSuccess(t *testing.T) {
 }
 
 func TestNamespace_TryLockAlreadyHeld(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	owner, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock: %v", err)
 	}
 
-	secret, ok := ns.TryLock("resource", time.Minute, context.Background())
+	secret, ok := tryLockNS(t, ns, "resource")
 	if ok {
 		t.Fatal("expected try lock to fail when already held")
 	}
@@ -131,14 +148,14 @@ func TestNamespace_TryLockAlreadyHeld(t *testing.T) {
 }
 
 func TestNamespace_DifferentKeysAreIndependent(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	first, err := ns.Lock("a", 0, context.Background())
 	if err != nil {
 		t.Fatalf("lock a: %v", err)
 	}
 
-	second, ok := ns.TryLock("b", time.Minute, context.Background())
+	second, ok := tryLockNS(t, ns, "b")
 	if !ok {
 		t.Fatal("expected try lock on b to succeed")
 	}
@@ -152,7 +169,7 @@ func TestNamespace_DifferentKeysAreIndependent(t *testing.T) {
 }
 
 func TestNamespace_LockBlocksSameKey(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	owner, err := ns.Lock("resource", 0, context.Background())
 	if err != nil {
@@ -182,7 +199,7 @@ func TestNamespace_LockBlocksSameKey(t *testing.T) {
 }
 
 func TestNamespace_LockCancelledContext(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -197,7 +214,7 @@ func TestNamespace_LockCancelledContext(t *testing.T) {
 }
 
 func TestNamespace_ConcurrentDifferentKeys(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	const goroutines = 32
 	var wg sync.WaitGroup
@@ -223,7 +240,7 @@ func TestNamespace_ConcurrentDifferentKeys(t *testing.T) {
 }
 
 func TestNamespace_ConcurrentSameKey(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	const goroutines = 16
 	var success atomic.Int32
@@ -233,7 +250,11 @@ func TestNamespace_ConcurrentSameKey(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
-			secret, ok := ns.TryLock("shared", time.Minute, context.Background())
+			secret, ok, err := ns.TryLock("shared", time.Minute, context.Background())
+			if err != nil {
+				t.Errorf("try lock: %v", err)
+				return
+			}
 			if !ok {
 				return
 			}
@@ -251,7 +272,7 @@ func TestNamespace_ConcurrentSameKey(t *testing.T) {
 
 func TestNamespace_ConcurrentLockHandoff(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ns := NewNamespace("test", 16, UUIDSecretFactory)
+		ns := newTestNamespace(t)
 
 		const waiters = 10
 		var acquired atomic.Int32
@@ -293,7 +314,7 @@ func TestNamespace_ConcurrentLockHandoff(t *testing.T) {
 }
 
 func TestNamespace_bucketNumStable(t *testing.T) {
-	ns := NewNamespace("test", 16, UUIDSecretFactory)
+	ns := newTestNamespace(t)
 
 	first := ns.bucketNum("stable-key")
 	second := ns.bucketNum("stable-key")

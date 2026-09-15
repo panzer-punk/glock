@@ -24,11 +24,14 @@ func newTestApp(t *testing.T) *App {
 	t.Helper()
 	factory := seqSecretFactory()
 	lm := lock.NewLockService()
-	lm.AddNamespace("default", 16, factory)
-	lm.AddNamespace("other", 16, factory)
+	if err := lm.AddNamespace("default", 16, factory); err != nil {
+		t.Fatalf("add default namespace: %v", err)
+	}
+	if err := lm.AddNamespace("other", 16, factory); err != nil {
+		t.Fatalf("add other namespace: %v", err)
+	}
 	return NewApp(&Config{
 		DefaultNamespace: "default",
-		SecretFactory:    &factory,
 		LockManager:      lm,
 	})
 }
@@ -94,7 +97,8 @@ func pktUnlock(ns, key, secret string) *protocol.Packet {
 func callHandle(a *App, rq *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
 	rp := protocol.Packet{
 		Version: protocol.ProtoVersion,
-		Type:    protocol.PacketTypeSuccess,
+		// TODO stop pre-seeding Success; handlers must set it. Add an App+UnixSocket e2e test.
+		Type: protocol.PacketTypeSuccess,
 	}
 	err := a.Handle(rq, &rp, ctx)
 	return &rp, err

@@ -54,6 +54,7 @@ final class GlockClient
 
     public function lock(string $namespace, string $key): string
     {
+        // TODO accept TTL; publish this client as a Composer package.
         $response = $this->request(self::PACKET_LOCK, [
             [self::BLOCK_NAMESPACE, $namespace],
             [self::BLOCK_KEY, $key],

@@ -10,6 +10,7 @@ Proof-of-concept for a distributed locking service aimed primarily at PHP in the
 - **Blocking and non-blocking locks** — `lock()` waits until the lock is available; `tryLock()` returns immediately.
 - **TTL** — locks with TTL (`tryLock()`) are not bound to the session: they are not released on disconnect and live until the TTL expires or an explicit `unlock()`.
 - **Namespace isolation** — locks are scoped to a namespace; the same key in different namespaces does not conflict.
+- **Secret** — a successful lock returns a `secret`: pass it to `unlock()`, and you can also use it in the application as a fencing token (for example, send it to storage with a write so stale operations from a previous holder are rejected). It is currently a UUID; a monotonic fencing token is still in the TODO.
 
 ## POC limitations
 
@@ -25,9 +26,10 @@ This is **not the final version** of the POC. The following is intentionally out
 - [x] **Go tests**
 - [ ] **Basic fault tolerance** — server failure behavior and lock recovery
 - [ ] **Persistence** — persist namespaces and TTL locks so they survive a server restart
-- [ ] **Fencing token** — a `SecretFactory` that issues a monotonically increasing fencing token instead of a UUID
+- [ ] **Monotonic fencing token** — add a `SecretFactory` that issues a monotonically increasing fencing token instead of a UUID
 - [ ] **Architecture and project structure refactoring**
 - [ ] **Logging**
+- [ ] **Observability** — metrics
 - [ ] **Benchmarks**
 - [ ] **Optimization**
 - [ ] **TCPBackend**
@@ -66,7 +68,7 @@ $client->connect();
 
 $secret = $client->lock('default', 'my-resource');
 try {
-    // critical section
+    // critical section; $secret can be used as a fencing token
 } finally {
     $client->unlock('default', 'my-resource', $secret);
     $client->close();

@@ -11,7 +11,9 @@ func sessionLockManager(t *testing.T) *lock.LockManager {
 	t.Helper()
 	factory := seqSecretFactory()
 	lm := lock.NewLockService()
-	lm.AddNamespace("ns", 16, factory)
+	if err := lm.AddNamespace("ns", 16, factory); err != nil {
+		t.Fatalf("add namespace: %v", err)
+	}
 	return lm
 }
 
@@ -30,7 +32,10 @@ func acquireSessionLock(t *testing.T, lm *lock.LockManager, key string) SessionL
 
 func assertLockFree(t *testing.T, lm *lock.LockManager, key string, wantFree bool) {
 	t.Helper()
-	sec, ok := lm.TryLock("ns", key, time.Minute, context.Background())
+	sec, ok, err := lm.TryLock("ns", key, time.Minute, context.Background())
+	if err != nil {
+		t.Fatalf("try lock %q: %v", key, err)
+	}
 	if ok {
 		_ = lm.Unlock("ns", key, sec)
 	}
@@ -42,8 +47,8 @@ func assertLockFree(t *testing.T, lm *lock.LockManager, key string, wantFree boo
 func TestSession_CloseReleasesRememberedLocks(t *testing.T) {
 	lm := sessionLockManager(t)
 	s := NewSession()
-	s.RememberLock("a", acquireSessionLock(t, lm, "a"))
-	s.RememberLock("b", acquireSessionLock(t, lm, "b"))
+	s.RememberLock(acquireSessionLock(t, lm, "a"))
+	s.RememberLock(acquireSessionLock(t, lm, "b"))
 
 	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
@@ -56,8 +61,9 @@ func TestSession_CloseReleasesRememberedLocks(t *testing.T) {
 func TestSession_ForgetLockSkipsRelease(t *testing.T) {
 	lm := sessionLockManager(t)
 	s := NewSession()
-	s.RememberLock("a", acquireSessionLock(t, lm, "a"))
-	s.ForgetLock("a")
+	held := acquireSessionLock(t, lm, "a")
+	s.RememberLock(held)
+	s.ForgetLock(held.Namespace, held.Key)
 
 	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
@@ -69,21 +75,21 @@ func TestSession_ForgetLockSkipsRelease(t *testing.T) {
 func TestSession_RememberLockReplacesRelease(t *testing.T) {
 	lm := sessionLockManager(t)
 	s := NewSession()
-	s.RememberLock("slot", acquireSessionLock(t, lm, "first"))
-	s.RememberLock("slot", acquireSessionLock(t, lm, "second"))
+	held := acquireSessionLock(t, lm, "a")
+	s.RememberLock(SessionLock{Namespace: held.Namespace, Key: held.Key, Secret: "old-secret"})
+	s.RememberLock(held)
 
 	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 
-	assertLockFree(t, lm, "first", false)
-	assertLockFree(t, lm, "second", true)
+	assertLockFree(t, lm, "a", true)
 }
 
 func TestSession_CloseIdempotent(t *testing.T) {
 	lm := sessionLockManager(t)
 	s := NewSession()
-	s.RememberLock("a", acquireSessionLock(t, lm, "a"))
+	s.RememberLock(acquireSessionLock(t, lm, "a"))
 
 	if err := s.Close(lm); err != nil {
 		t.Fatalf("close: %v", err)

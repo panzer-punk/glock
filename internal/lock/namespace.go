@@ -2,8 +2,13 @@ package lock
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
 	"time"
+)
+
+var (
+	ErrBucketCnt = errors.New("")
 )
 
 type Namespace struct {
@@ -11,10 +16,12 @@ type Namespace struct {
 	BucketsCnt uint32
 	secFactory SecretFactory
 	buckets    []*Bucket
-	locks      map[string]*Lock
 }
 
-func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) *Namespace {
+func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) (*Namespace, error) {
+	if bucketsCnt <= 0 && bucketsCnt % 2 != 0 {
+		return nil, ErrBucketCnt
+	}
 
 	buckets := make([]*Bucket, bucketsCnt)
 
@@ -27,8 +34,7 @@ func NewNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) *Nam
 		BucketsCnt: bucketsCnt,
 		secFactory: secFactory,
 		buckets:    buckets,
-		locks:      make(map[string]*Lock),
-	}
+	}, nil
 }
 
 func (ns *Namespace) Lock(key string, ttl time.Duration, ctx context.Context) (string, error) {
@@ -43,16 +49,16 @@ func (ns *Namespace) Lock(key string, ttl time.Duration, ctx context.Context) (s
 	return sec, nil
 }
 
-func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context) (string, bool) {
+func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context) (string, bool, error) {
 	b := ns.getBucket(key)
 	sec := ns.secFactory()
 
-	ok := b.TryLock(key, sec, ttl, ctx)
+	ok, err := b.TryLock(key, sec, ttl, ctx)
 	if !ok {
-		return "", false
+		return "", false, err
 	}
 
-	return sec, true
+	return sec, true, nil
 }
 
 func (ns *Namespace) getBucket(key string) *Bucket {

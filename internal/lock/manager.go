@@ -20,12 +20,18 @@ func NewLockService() *LockManager {
 	}
 }
 
-func (ls *LockManager) AddNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) {
+func (ls *LockManager) AddNamespace(name string, bucketsCnt uint32, secFactory SecretFactory) error {
 	ls.nsMu.Lock()
 	defer ls.nsMu.Unlock()
 
-	ns := NewNamespace(name, bucketsCnt, secFactory)
+	ns, err := NewNamespace(name, bucketsCnt, secFactory)
+	if err != nil {
+		return err
+	}
+
 	ls.namespaces[name] = ns
+
+	return nil
 }
 
 func (ls *LockManager) DeleteNamespace(name string) {
@@ -52,10 +58,10 @@ func (ls *LockManager) Lock(namespace, key string, ttl time.Duration, ctx contex
 	return ns.Lock(key, ttl, ctx)
 }
 
-func (ls *LockManager) TryLock(namespace, key string, ttl time.Duration, ctx context.Context) (string, bool) {
+func (ls *LockManager) TryLock(namespace, key string, ttl time.Duration, ctx context.Context) (string, bool, error) {
 	ns, ok := ls.getNamespace(namespace)
 	if !ok {
-		return "", false
+		return "", false, ErrNamespaceNotFound
 	}
 
 	return ns.TryLock(key, ttl, ctx)

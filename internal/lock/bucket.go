@@ -38,12 +38,12 @@ func (b *Bucket) findLock(key string) *Lock {
 	return l
 }
 
-func (b *Bucket) TryLock(key string, sec string, ttl time.Duration, ctx context.Context) bool {
+func (b *Bucket) TryLock(key string, sec string, ttl time.Duration, ctx context.Context) (bool, error) {
 	l := b.findLock(key)
 
-	ok, _ := l.TryLock(sec, ttl, ctx)
+	ok, err := l.TryLock(sec, ttl, ctx)
 
-	return ok
+	return ok, err
 }
 
 func (b *Bucket) Unlock(key string, sec string) error {

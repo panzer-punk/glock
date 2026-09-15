@@ -12,7 +12,7 @@ type SessionLock struct {
 }
 
 type Session struct {
-	Ctx   context.Context
+	Ctx context.Context
 	locks map[string]SessionLock
 }
 
@@ -22,18 +22,24 @@ func NewSession() *Session {
 	}
 }
 
-func (s *Session) RememberLock(k string, lock SessionLock) {
-	s.locks[k] = lock
+func (s *Session) RememberLock(lock SessionLock) {
+	key := s.lockKey(lock.Namespace, lock.Key)
+	s.locks[key] = lock
 }
 
-func (s *Session) ForgetLock(k string) {
-	delete(s.locks, k)
+func (s *Session) lockKey(n, k string) string {
+	return n + ":" + k
+}
+
+func (s *Session) ForgetLock(n, k string) {
+	key := s.lockKey(n, k)
+	delete(s.locks, key)
 }
 
 func (s *Session) Close(mngr *lock.LockManager) error {
-	for k, lock := range s.locks {
+	for _, lock := range s.locks {
 		mngr.Unlock(lock.Namespace, lock.Key, lock.Secret)
-		s.ForgetLock(k)
+		s.ForgetLock(lock.Namespace, lock.Key)
 	}
 
 	return nil

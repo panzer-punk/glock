@@ -22,11 +22,11 @@ func main() {
 	lockManager := lock.NewLockService()
 	conf := &app.Config{
 		DefaultNamespace: "default",
-		SecretFactory:    &secFactory,
 		LockManager:      lockManager,
 	}
 	application := app.NewApp(conf)
 
+	// TODO create namespaces on demand (or expose an API); only "default" exists at runtime.
 	lockManager.AddNamespace(conf.DefaultNamespace, DefaultBucketsCnt, secFactory)
 
 	backend := transport.NewUnixSocketBackend(DefaultUnixSocketPath)

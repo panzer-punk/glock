@@ -8,7 +8,7 @@ import (
 )
 
 type Backend interface {
-	Start(*Handler) error
+	Start(Handler) error
 	Shutdown(context.Context) error
 }
 

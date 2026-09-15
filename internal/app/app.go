@@ -21,7 +21,6 @@ var (
 type Config struct {
 	DefaultNamespace string
 
-	SecretFactory *lock.SecretFactory
 	LockManager   *lock.LockManager
 }
 
@@ -80,7 +79,8 @@ func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) e
 		return nil
 	}
 
-	sec, err := a.conf.LockManager.Lock(string(ns), string(k), a.getTTL(rq), s.Ctx)
+	ttl := a.getTTL(rq)
+	sec, err := a.conf.LockManager.Lock(string(ns), string(k), ttl, s.Ctx)
 	if err != nil {
 		return a.replyOrFail(rp, err)
 	}
@@ -88,12 +88,17 @@ func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) e
 	sessionNs := string(ns)
 	sessionKey := string(k)
 	sessionSec := sec
-	s.RememberLock(sessionKey, SessionLock{
-		Namespace: sessionNs,
-		Key:       sessionKey,
-		Secret:    sessionSec,
-	})
+
+	if ttl == 0 {
+		s.RememberLock(SessionLock{
+			Namespace: sessionNs,
+			Key:       sessionKey,
+			Secret:    sessionSec,
+		})
+	}
+
 	rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeSecret, []byte(sec)))
+	rp.Type = protocol.PacketTypeSuccess
 
 	return nil
 }
@@ -111,7 +116,14 @@ func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session
 		return nil
 	}
 
-	sec, ok := a.conf.LockManager.TryLock(string(ns), string(k), a.getTTL(rq), s.Ctx)
+	ttl := a.getTTL(rq)
+	namespace := string(ns)
+	key := string(k)
+
+	sec, ok, err := a.conf.LockManager.TryLock(namespace, key, ttl, s.Ctx)
+	if err != nil {
+		return a.replyOrFail(rp, err)
+	}
 
 	var success byte
 	var secValue []byte
@@ -124,6 +136,15 @@ func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session
 		secValue = []byte{0}
 	}
 
+	if ok && ttl == 0 {
+		s.RememberLock(SessionLock{
+			Namespace: namespace,
+			Key: key,
+			Secret: sec,
+		})
+	}
+
+	rp.Type = protocol.PacketTypeSuccess
 	rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeSecret, secValue))
 	rp.AddBlock(protocol.NewPayloadBlock(protocol.PayloadBlockTypeSuccess, []byte{success}))
 
@@ -155,7 +176,9 @@ func (a *App) handleUnlock(rq *protocol.Packet, rp *protocol.Packet, s *Session)
 		return a.replyOrFail(rp, err)
 	}
 
-	s.ForgetLock(string(k))
+	s.ForgetLock(string(ns), string(k))
+
+	rp.Type = protocol.PacketTypeSuccess
 
 	return nil
 }
@@ -185,5 +208,6 @@ func (a *App) getTTL(rq *protocol.Packet) time.Duration {
 		return 0
 	}
 
+	// TODO reject TTL payloads that are not 8 bytes; Uint64 panics on a short slice.
 	return time.Duration(binary.BigEndian.Uint64(raw)) * time.Nanosecond
 }

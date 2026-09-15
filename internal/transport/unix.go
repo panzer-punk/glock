@@ -36,6 +36,7 @@ func NewUnixSocketBackend(socketPath string) *UnixSocketBackend {
 }
 
 func (b *UnixSocketBackend) Start(handler Handler) error {
+	// TODO unlink a leftover socket path so Start works after a crash.
 	listener, err := net.Listen("unix", b.socketPath)
 	if err != nil {
 		return err
@@ -65,24 +66,27 @@ func (b *UnixSocketBackend) Start(handler Handler) error {
 		b.connMu.Unlock()
 
 		conn.ctx = b.handler.OnConnect(ctx)
+
 		go b.handleConn(conn)
 	}
 }
 
-func (b *UnixSocketBackend) handleConn(conn *Conn) {
-	defer func() {
-		conn.Close()
-		b.connMu.Lock()
-		defer b.connMu.Unlock()
-		delete(b.conns, conn)
-	}()
+func (b *UnixSocketBackend) disconnect(conn *Conn) {
+	b.connMu.Lock()
+	defer b.connMu.Unlock()
+	conn.Close()
+	delete(b.conns, conn)
+}
 
+func (b *UnixSocketBackend) handleConn(conn *Conn) {
 	var header [protocol.PacketHeaderSize]byte
 
 	reqBuf := packetBufferPool.Get().(*bytes.Buffer)
 	respBuf := packetBufferPool.Get().(*bytes.Buffer)
 
 	defer func() {
+		b.disconnect(conn)
+
 		reqBuf.Reset()
 		respBuf.Reset()
 
@@ -103,6 +107,7 @@ func (b *UnixSocketBackend) handleConn(conn *Conn) {
 		version := header[0]
 		pType := header[1]
 		pLen := binary.BigEndian.Uint32(header[2:])
+		// TODO cap payload length; a huge pLen can OOM.
 
 		reqBuf.Grow(int(pLen))
 		n, err := io.CopyN(reqBuf, conn.nConn, int64(pLen))
