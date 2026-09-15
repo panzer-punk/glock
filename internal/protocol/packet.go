@@ -214,10 +214,3 @@ func (p *Packet) AddBlock(block PayloadBlock) {
 	p.Blocks[block.Type] = block
 	p.PayloadLength += block.Size()
 }
-
-func (p *Packet) Reset() {
-	p.Version = 0
-	p.Type = 0
-	p.PayloadLength = 0
-	clear(p.Blocks[:])
-}

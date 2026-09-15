@@ -51,6 +51,7 @@ func (ns *Namespace) Lock(key string, ttl time.Duration, ctx context.Context) (s
 
 func (ns *Namespace) TryLock(key string, ttl time.Duration, ctx context.Context) (string, bool, error) {
 	b := ns.getBucket(key)
+	// TODO mint a secret only after a successful acquire; this wastes a UUID on a busy lock.
 	sec := ns.secFactory()
 
 	ok, err := b.TryLock(key, sec, ttl, ctx)
@@ -79,6 +80,7 @@ func (ns *Namespace) Unlock(key string, secret string) error {
 }
 
 func (ns *Namespace) bucketNum(key string) uint32 {
+	// TODO hash the string without fnv.New32a() / []byte(key); both allocate on every Lock/Unlock.
 	hash := fnv.New32a()
 	hash.Write([]byte(key))
 

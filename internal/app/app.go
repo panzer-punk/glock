@@ -80,6 +80,7 @@ func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) e
 	}
 
 	ttl := a.getTTL(rq)
+	// TODO convert ns/key to string once and reuse for Lock, session, and the response; []byte(sec) copies the secret again.
 	sec, err := a.conf.LockManager.Lock(string(ns), string(k), ttl, s.Ctx)
 	if err != nil {
 		return a.replyOrFail(rp, err)
@@ -133,6 +134,7 @@ func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session
 		secValue = []byte(sec)
 	} else {
 		success = 0
+		// TODO reuse a static []byte{0}/[]byte{1}; this allocates on every TryLock.
 		secValue = []byte{0}
 	}
 
@@ -171,6 +173,7 @@ func (a *App) handleUnlock(rq *protocol.Packet, rp *protocol.Packet, s *Session)
 		return nil
 	}
 
+	// TODO same as lock: one string(ns)/string(k)/string(sec), not three fresh copies.
 	err := a.conf.LockManager.Unlock(string(ns), string(k), string(sec))
 	if err != nil {
 		return a.replyOrFail(rp, err)

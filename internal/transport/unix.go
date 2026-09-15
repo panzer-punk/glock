@@ -12,7 +12,11 @@ import (
 	"sync"
 )
 
-var packetBufferPool = sync.Pool{
+var (
+	ErrInternal = errors.New("internal error")
+)
+
+var byteBufferPool = sync.Pool{
 	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, 512))
 	},
@@ -79,76 +83,102 @@ func (b *UnixSocketBackend) disconnect(conn *Conn) {
 }
 
 func (b *UnixSocketBackend) handleConn(conn *Conn) {
-	var header [protocol.PacketHeaderSize]byte
+	rpChan := make(chan protocol.Packet, 1)
 
-	reqBuf := packetBufferPool.Get().(*bytes.Buffer)
-	respBuf := packetBufferPool.Get().(*bytes.Buffer)
+	go func() {
+		var header [protocol.PacketHeaderSize]byte
+		var err error = nil
+		readerBuf := byteBufferPool.Get().(*bytes.Buffer)
 
-	defer func() {
-		b.disconnect(conn)
+		defer func() {
+			b.closeBuffer(readerBuf)
+			close(rpChan)
+		}()
 
-		reqBuf.Reset()
-		respBuf.Reset()
+		for {
+			_, err = io.ReadFull(conn.nConn, header[:])
+			if err != nil {
+				readerBuf.Reset()
+				conn.writePacket(readerBuf, protocol.NewErrPacket(err))
+				b.disconnect(conn)
+				return
+			}
 
-		// TODO check buffers size and put back if it's too small
-		packetBufferPool.Put(reqBuf)
-		packetBufferPool.Put(respBuf)
+			plen := binary.BigEndian.Uint32(header[2:])
+			// TODO cap plen; a huge length can OOM.
+			// TODO ReadFull into a per-conn []byte; CopyN allocates a scratch buffer then copies into readerBuf.
+
+			readerBuf.Grow(int(plen))
+			n, err := io.CopyN(readerBuf, conn.nConn, int64(plen))
+			if err != nil || n != int64(plen) {
+				readerBuf.Reset()
+				conn.writePacket(readerBuf, protocol.NewErrPacket(err))
+				b.disconnect(conn)
+				return
+			}
+
+			pBytes := bytes.Clone(readerBuf.Bytes())
+			// TODO drop Clone: ping-pong two payload buffers (or two Packets) so Handle can keep the bytes while the reader fills the other.
+
+			p := protocol.Packet{}
+			p.Version = header[0]
+			p.Type = protocol.PacketType(header[1])
+			p.PayloadLength = plen
+			err = p.DeserializePayload(pBytes)
+			if err != nil {
+				readerBuf.Reset()
+				conn.writePacket(readerBuf, protocol.NewErrPacket(err))
+				b.disconnect(conn)
+				return
+			}
+
+			// TODO send *Packet, not a copy of Blocks slice headers, once packets are reused per conn.
+			rpChan <- p
+			readerBuf.Reset()
+		}
 	}()
 
-	rq := protocol.Packet{}
-	rp := protocol.Packet{}
+	writerPacket := &protocol.Packet{}
+	writerBuffer := byteBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		b.closeBuffer(writerBuffer)
+		b.disconnect(conn)
+	}()
 
 	for {
-		_, err := io.ReadFull(conn.nConn, header[:])
-		if err != nil {
-			return
+		select {
+			case <-conn.ctx.Done():
+				return
+			case packet := <-rpChan:
+				err := b.handler.Handle(&packet, writerPacket, conn.ctx)
+				if err != nil {
+					conn.writePacket(writerBuffer, protocol.NewErrPacket(err))
+					b.disconnect(conn)
+					return
+				}
+				err = conn.writePacket(writerBuffer, writerPacket)
+				if err != nil {
+					b.disconnect(conn)
+					return
+				}
+
+				// Reset the writer packet.
+				{
+					writerPacket.Type = 0
+					writerPacket.Version = 0
+					writerPacket.PayloadLength = 0
+					clear(writerPacket.Blocks[:])
+				}
 		}
+	}
+}
 
-		version := header[0]
-		pType := header[1]
-		pLen := binary.BigEndian.Uint32(header[2:])
-		// TODO cap payload length; a huge pLen can OOM.
+func (b *UnixSocketBackend) closeBuffer(buf *bytes.Buffer) {
+	const mb = 1024 * 1024
 
-		reqBuf.Grow(int(pLen))
-		n, err := io.CopyN(reqBuf, conn.nConn, int64(pLen))
-		if err != nil || n != int64(pLen) {
-			conn.writePacket(
-				respBuf,
-				protocol.NewErrPacket(errors.Join(err, protocol.ErrInvalidPacketLength)),
-			)
-			return
-		}
-
-		rq.Version = version
-		rq.Type = protocol.PacketType(pType)
-		rq.PayloadLength = pLen
-
-		rp.Version = protocol.ProtoVersion
-
-		err = rq.DeserializePayload(reqBuf.Bytes())
-		if err != nil {
-			conn.writePacket(respBuf, protocol.NewErrPacket(err))
-			return
-		}
-
-		/**
-		Handle is responsible for writing the response packet to the response buffer.
-		If it returns an error, the connection is closed with error packet.
-		*/
-		err = b.handler.Handle(&rq, &rp, conn.ctx)
-		if err != nil {
-			conn.writePacket(respBuf, protocol.NewErrPacket(err))
-			return
-		}
-
-		if err := conn.writePacket(respBuf, &rp); err != nil {
-			return
-		}
-
-		reqBuf.Reset()
-		respBuf.Reset()
-		rq.Reset()
-		rp.Reset()
+	buf.Reset()
+	if buf.Cap() < mb {
+		byteBufferPool.Put(buf)
 	}
 }
 

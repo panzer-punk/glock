@@ -28,6 +28,7 @@ func (s *Session) RememberLock(lock SessionLock) {
 }
 
 func (s *Session) lockKey(n, k string) string {
+	// TODO map by struct{ns, key string} instead of concatenating a new string per Remember/Forget.
 	return n + ":" + k
 }
 

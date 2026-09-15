@@ -229,25 +229,6 @@ func TestNewErrPacket(t *testing.T) {
 	}
 }
 
-func TestReset(t *testing.T) {
-	p := NewPacket(PacketTypeLock)
-	p.AddBlock(NewPayloadBlock(PayloadBlockTypeKey, []byte("k")))
-	p.Reset()
-
-	if p.Version != 0 || p.Type != 0 || p.PayloadLength != 0 {
-		t.Fatalf("headers after reset: ver=%d type=%d len=%d", p.Version, p.Type, p.PayloadLength)
-	}
-	if _, ok := p.FindBlock(PayloadBlockTypeKey); ok {
-		t.Fatal("expected no key after reset")
-	}
-
-	p.AddBlock(NewPayloadBlock(PayloadBlockTypeKey, []byte("next")))
-	got, ok := p.FindBlock(PayloadBlockTypeKey)
-	if !ok || string(got.Value) != "next" {
-		t.Fatalf("reuse after reset: ok=%v value=%q", ok, got.Value)
-	}
-}
-
 func TestWireLayoutMatchesHeaderConstants(t *testing.T) {
 	p := NewPacket(PacketTypeTryLock)
 	p.AddBlock(NewPayloadBlock(PayloadBlockTypeKey, []byte("ab")))
