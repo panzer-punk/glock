@@ -4,8 +4,7 @@ import (
 	"context"
 	"glock/internal/app"
 	"glock/internal/lock"
-	"glock/internal/namespace"
-	"glock/internal/service"
+	"glock/internal/transport"
 	"log"
 	"os"
 	"os/signal"
@@ -13,27 +12,28 @@ import (
 	"time"
 )
 
+const (
+	DefaultUnixSocketPath = "/tmp/glock_test.sock"
+	DefaultBucketsCnt     = 256
+)
+
 func main() {
-	container := &app.Container{
-		LockService: service.NewLockService(),
-		Config: app.AppConfig{
-			DefaultNamespace:     "default",
-			DefaultTTL:           1 * time.Second,
-			DefaultSecretFactory: &lock.NullSecretFactory{},
-		},
+	secFactory := lock.UUIDSecretFactory
+	lockManager := lock.NewLockService()
+	conf := &app.Config{
+		DefaultNamespace: "default",
+		LockManager:      lockManager,
 	}
-	application := app.NewApp(container)
+	application := app.NewApp(conf)
 
-	container.LockService.AddNamespace(container.Config.DefaultNamespace, &namespace.Options{
-		SecretFactory: container.Config.DefaultSecretFactory,
-		Buckets: 256,
-	})
+	// TODO create namespaces on demand (or expose an API); only "default" exists at runtime.
+	lockManager.AddNamespace(conf.DefaultNamespace, DefaultBucketsCnt, secFactory)
 
-	backend := app.NewUnixSocketBackend("/tmp/glock_test.sock", application)
+	backend := transport.NewUnixSocketBackend(DefaultUnixSocketPath)
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- backend.Start()
+		errCh <- backend.Start(application)
 	}()
 
 	sigCh := make(chan os.Signal, 1)

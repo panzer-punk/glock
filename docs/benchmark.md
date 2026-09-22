@@ -8,7 +8,7 @@
 
 | Ось сравнения | Вопрос |
 |---|---|
-| **Локальный mutex** (одна машина) | Нужен ли отдельный daemon, или хватит `flock` / in-process lock? |
+| **Локальный mutex** (одна машина) | Нужен ли отдельный daemon, или хватит `flock`? |
 | **Сетевой mutex** | Имеет с sense dedicated lock-сервис, если уже есть Redis? |
 
 Эти оси **не смешивать** в одном отчёте.
@@ -21,7 +21,6 @@
 
 - **Glock** (`UnixSocketBackend`)
 - **`flock`** — file lock между worker'ами
-- **`APCu`** *(опционально)* — только для single-process PHP (CLI daemon, long-running worker). **Не mutex между FPM worker'ами.**
 
 ### Этап 2 — сетевой mutex
 
@@ -41,7 +40,6 @@
 | `flock` | процессы на одной машине |
 | Glock (unix / tcp) | процессы / worker'ы, при tcp — и между хостами |
 | Redis | между машинами |
-| APCu | только внутри одного PHP-процесса |
 
 ## Сценарии (обязательные)
 
@@ -124,7 +122,7 @@
 
 ```text
 Этап 1 (локально):
-  Backends: Glock UnixSocket | flock | APCu*
+  Backends: Glock UnixSocket | flock
   Scenarios: S1, S2, S3, S4, S5
 
 Этап 2 (сеть, localhost):
@@ -133,8 +131,6 @@
 
 Этап 3:
   Go microbench сервера (без PHP)
-
-* APCu — только если есть кейс single-process PHP
 ```
 
 ## Инструменты (текущие и планируемые)
@@ -147,7 +143,7 @@
 Планируется:
 
 - параллельный запуск N worker'ов (shell / make target)
-- адаптеры для `flock`, Redis, APCu с тем же сценарным API
+- адаптеры для `flock`, Redis с тем же сценарным API
 - `TCPBackend` в Go
 - скрипт агрегации результатов (p50/p95/p99, ops/sec)
 
@@ -170,8 +166,7 @@ notes (PHP version, OS, Redis version, etc.)
 
 1. Довести S2 + S4 для **Glock UnixSocket vs flock** — главный локальный вопрос.
 2. Добавить **TCPBackend**, повторить матрицу против **Redis**.
-3. **APCu** — только при явном single-process кейсе.
-4. Go microbench — когда нужно отделить server overhead от PHP client.
+3. Go microbench — когда нужно отделить server overhead от PHP client.
 
 ## Связанные файлы
 
