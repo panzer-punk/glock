@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"glock/internal/protocol"
@@ -67,9 +66,7 @@ func dialApp(t *testing.T, path string) net.Conn {
 
 func writeAppPacket(t *testing.T, c net.Conn, p *protocol.Packet) {
 	t.Helper()
-	var buf bytes.Buffer
-	p.Serialize(&buf)
-	if _, err := c.Write(buf.Bytes()); err != nil {
+	if _, err := c.Write(p.Serialize(nil)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }

@@ -2,7 +2,7 @@
 
 [Russian](README.md)
 
-Proof-of-concept for a distributed locking service aimed primarily at PHP in the classic **php-fpm** and **php-cli** setup: a mutex between processes over a Unix socket on one host, and later over TCP across hosts.
+Proof-of-concept lock service aimed primarily at PHP in the classic **php-fpm** and **php-cli** setup: a mutex between processes over a Unix socket on one host.
 
 ## Features
 
@@ -20,9 +20,11 @@ This is **not the final version** of the POC. The following is intentionally out
 - **Fault tolerance** — server failure behavior and lock recovery are still under development.
 - **PHP client** — `GlockClient.php` is a work in progress and not the final version.
 - **Project layout** — package and file organization may change.
+- **Connection multiplexing** — a connection handles one in-flight request at a time (`write`, then `read`). A second frame while the first is still in `Handle` drops the connection. Multiplexing with a stream/request id (HTTP/2-style) is out of POC scope.
 
 ## TODO
 
+- [ ] **Namespace API** — create namespaces on demand or via a dedicated API; currently only `default` exists at runtime
 - [x] **Go tests**
 - [ ] **Basic fault tolerance** — server failure behavior and lock recovery
 - [ ] **Persistence** — persist namespaces and TTL locks so they survive a server restart
@@ -82,3 +84,7 @@ if ($client->tryLock('default', 'my-resource')) {
     // lock acquired
 }
 ```
+
+## License
+
+[MIT](LICENSE)

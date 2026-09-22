@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -88,9 +87,7 @@ func dialTest(t *testing.T, path string) net.Conn {
 
 func writePacket(t *testing.T, c net.Conn, p protocol.Packet) {
 	t.Helper()
-	var buf bytes.Buffer
-	p.Serialize(&buf)
-	if _, err := c.Write(buf.Bytes()); err != nil {
+	if _, err := c.Write(p.Serialize(nil)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }
@@ -212,6 +209,69 @@ func TestUnixSocketBackend_TwoRequestsSameConnection(t *testing.T) {
 
 	if n.Load() != 2 {
 		t.Fatalf("handles: got %d, want 2", n.Load())
+	}
+}
+
+func TestUnixSocketBackend_OverlappingLocksDropConnection(t *testing.T) {
+	started := make(chan struct{})
+	h := &handlerStub{
+		handle: func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	_, path := startTestBackend(t, h)
+	c := dialTest(t, path)
+	writePacket(t, c, lockRequest("first"))
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lock was not handled")
+	}
+
+	writePacket(t, c, lockRequest("second"))
+
+	if _, err := c.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected connection to drop on overlapping lock")
+	}
+}
+
+func TestUnixSocketBackend_LockThenBrokenPacketDropsConnection(t *testing.T) {
+	started := make(chan struct{})
+	h := &handlerStub{
+		handle: func(rq *protocol.Packet, rp *protocol.Packet, ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	_, path := startTestBackend(t, h)
+	c := dialTest(t, path)
+	writePacket(t, c, lockRequest("k"))
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lock was not handled")
+	}
+
+	var header [protocol.PacketHeaderSize]byte
+	header[0] = protocol.ProtoVersion
+	header[1] = byte(protocol.PacketTypeLock)
+	binary.BigEndian.PutUint32(header[2:], 1)
+	if _, err := c.Write(header[:]); err != nil {
+		t.Fatalf("write header: %v", err)
+	}
+	if _, err := c.Write([]byte{0}); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+
+	if _, err := c.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected connection to drop on overlapping broken packet")
 	}
 }
 

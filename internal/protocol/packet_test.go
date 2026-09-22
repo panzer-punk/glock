@@ -8,9 +8,7 @@ import (
 )
 
 func marshal(p Packet) []byte {
-	var buf bytes.Buffer
-	p.Serialize(&buf)
-	return buf.Bytes()
+	return p.Serialize(nil)
 }
 
 func TestNewPacket(t *testing.T) {

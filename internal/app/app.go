@@ -16,6 +16,8 @@ var (
 	ErrMissingKey      = errors.New("missing key")
 	ErrMissingSecret   = errors.New("missing secret")
 	ErrUnknownPacket   = errors.New("unknown packet type")
+
+	emptySecret = []byte{0}
 )
 
 type Config struct {
@@ -80,20 +82,19 @@ func (a *App) handleLock(rq *protocol.Packet, rp *protocol.Packet, s *Session) e
 	}
 
 	ttl := a.getTTL(rq)
-	// TODO convert ns/key to string once and reuse for Lock, session, and the response; []byte(sec) copies the secret again.
-	sec, err := a.conf.LockManager.Lock(string(ns), string(k), ttl, s.Ctx)
+	namespace := string(ns)
+	key := string(k)
+	sec, err := a.conf.LockManager.Lock(namespace, key, ttl, s.Ctx)
 	if err != nil {
 		return a.replyOrFail(rp, err)
 	}
 
-	sessionNs := string(ns)
-	sessionKey := string(k)
 	sessionSec := sec
 
 	if ttl == 0 {
 		s.RememberLock(SessionLock{
-			Namespace: sessionNs,
-			Key:       sessionKey,
+			Namespace: namespace,
+			Key:       key,
 			Secret:    sessionSec,
 		})
 	}
@@ -134,8 +135,7 @@ func (a *App) handleTryLock(rq *protocol.Packet, rp *protocol.Packet, s *Session
 		secValue = []byte(sec)
 	} else {
 		success = 0
-		// TODO reuse a static []byte{0}/[]byte{1}; this allocates on every TryLock.
-		secValue = []byte{0}
+		secValue = emptySecret
 	}
 
 	if ok && ttl == 0 {
@@ -173,13 +173,16 @@ func (a *App) handleUnlock(rq *protocol.Packet, rp *protocol.Packet, s *Session)
 		return nil
 	}
 
-	// TODO same as lock: one string(ns)/string(k)/string(sec), not three fresh copies.
-	err := a.conf.LockManager.Unlock(string(ns), string(k), string(sec))
+	namespace := string(ns)
+	key := string(k)
+	secret := string(sec)
+
+	err := a.conf.LockManager.Unlock(namespace, key, secret)
 	if err != nil {
 		return a.replyOrFail(rp, err)
 	}
 
-	s.ForgetLock(string(ns), string(k))
+	s.ForgetLock(namespace, key)
 
 	rp.Type = protocol.PacketTypeSuccess
 

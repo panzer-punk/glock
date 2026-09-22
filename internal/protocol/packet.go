@@ -1,10 +1,8 @@
 package protocol
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
-	"unsafe"
 )
 
 /*
@@ -64,6 +62,7 @@ var (
 	ErrInvalidPacketLength  = errors.New("invalid packet length")
 	ErrInvalidPacket        = errors.New("invalid packet")
 	ErrInvalidPayloadLength = errors.New("invalid payload length")
+	ErrPacketTooLarge       = errors.New("packet too large")
 )
 
 type PayloadBlock struct {
@@ -75,13 +74,12 @@ type PayloadBlock struct {
 	Value []byte
 }
 
-func (p *PayloadBlock) serialize(buf *bytes.Buffer) {
-	var len [2]byte
-	binary.BigEndian.PutUint16(len[:], p.Len)
-
-	buf.WriteByte(byte(p.Type))
-	buf.Write(len[:])
-	buf.Write(p.Value)
+func (p *PayloadBlock) serialize(buf []byte) []byte {
+	var ln [2]byte
+	binary.BigEndian.PutUint16(ln[:], p.Len)
+	buf = append(buf, byte(p.Type))
+	buf = append(buf, ln[:]...)
+	return append(buf, p.Value...)
 }
 
 func (p *PayloadBlock) Size() uint32 {
@@ -124,31 +122,41 @@ func NewPacket(tp PacketType) Packet {
 
 func NewErrPacket(err error) *Packet {
 	packet := NewPacket(PacketTypeError)
-	errMsg := err.Error()
-	block := NewPayloadBlock(
-		PayloadBlockTypeError,
-		unsafe.Slice(unsafe.StringData(errMsg), len(errMsg)),
-	)
-	packet.AddBlock(block)
-
+	packet.LoadError(err)
 	return &packet
 }
 
-func (p *Packet) Serialize(buf *bytes.Buffer) {
+func (p *Packet) LoadError(err error) {
+	p.Version = ProtoVersion
+	p.Type = PacketTypeError
+	p.PayloadLength = 0
+	clear(p.Blocks[:])
+
+	p.AddBlock(NewPayloadBlock(PayloadBlockTypeError, []byte(err.Error())))
+}
+
+func (p *Packet) Reset() {
+	p.Version = ProtoVersion
+	p.Type = 0
+	p.PayloadLength = 0
+	clear(p.Blocks[:])
+}
+
+func (p *Packet) Serialize(buf []byte) []byte {
 	var headers [PacketHeaderSize]byte
 
 	headers[0] = p.Version
 	headers[1] = byte(p.Type)
 	binary.BigEndian.PutUint32(headers[2:6], p.PayloadLength)
 
-	buf.Write(headers[:])
-	for _, block := range p.Blocks {
-		if block.Empty() {
+	buf = append(buf, headers[:]...)
+	for i := range p.Blocks {
+		if p.Blocks[i].Empty() {
 			continue
 		}
-
-		block.serialize(buf)
+		buf = p.Blocks[i].serialize(buf)
 	}
+	return buf
 }
 
 func (p *Packet) Deserialize(data []byte) error {

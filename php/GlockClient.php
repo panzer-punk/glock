@@ -52,23 +52,19 @@ final class GlockClient
         $this->socket = null;
     }
 
-    public function lock(string $namespace, string $key): string
+    public function lock(string $namespace, string $key, ?int $ttlNs = null): string
     {
-        // TODO accept TTL; publish this client as a Composer package.
-        $response = $this->request(self::PACKET_LOCK, [
-            [self::BLOCK_NAMESPACE, $namespace],
-            [self::BLOCK_KEY, $key],
-        ]);
+        $response = $this->request(self::PACKET_LOCK, $this->lockBlocks($namespace, $key, $ttlNs));
 
         $this->expectSuccess($response);
 
         return $response['blocks'][self::BLOCK_SECRET] ?? '';
     }
 
-    public function lockUntilSuccess(string $namespace, string $key, int $retryDelayUs = 1000): string
+    public function lockUntilSuccess(string $namespace, string $key, int $retryDelayUs = 1000, ?int $ttlNs = null): string
     {
         while (true) {
-            [$secret, $acquired] = $this->tryLockWithSecret($namespace, $key);
+            [$secret, $acquired] = $this->tryLockWithSecret($namespace, $key, $ttlNs);
             if ($acquired) {
                 return $secret;
             }
@@ -89,16 +85,7 @@ final class GlockClient
      */
     public function tryLockWithSecret(string $namespace, string $key, ?int $ttlNs = null): array
     {
-        $blocks = [
-            [self::BLOCK_NAMESPACE, $namespace],
-            [self::BLOCK_KEY, $key],
-        ];
-
-        if ($ttlNs !== null) {
-            $blocks[] = [self::BLOCK_TTL, pack('J', $ttlNs)];
-        }
-
-        $response = $this->request(self::PACKET_TRY_LOCK, $blocks);
+        $response = $this->request(self::PACKET_TRY_LOCK, $this->lockBlocks($namespace, $key, $ttlNs));
 
         if ($response['type'] === self::PACKET_ERROR) {
             throw new RuntimeException($this->errorMessage($response));
@@ -126,6 +113,23 @@ final class GlockClient
         ]);
 
         $this->expectSuccess($response);
+    }
+
+    /**
+     * @return list<array{0: int, 1: string}>
+     */
+    private function lockBlocks(string $namespace, string $key, ?int $ttlNs): array
+    {
+        $blocks = [
+            [self::BLOCK_NAMESPACE, $namespace],
+            [self::BLOCK_KEY, $key],
+        ];
+
+        if ($ttlNs !== null) {
+            $blocks[] = [self::BLOCK_TTL, pack('J', $ttlNs)];
+        }
+
+        return $blocks;
     }
 
     private function request(int $type, array $blocks): array

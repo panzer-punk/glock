@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -12,13 +11,18 @@ import (
 	"sync"
 )
 
+const (
+	maxPacketSize = 10 * 1024 * 1024 // 10MB
+	maxBufferSize = 1 * 1024 // 1KB
+)
+
 var (
 	ErrInternal = errors.New("internal error")
 )
 
 var byteBufferPool = sync.Pool{
 	New: func() any {
-		return bytes.NewBuffer(make([]byte, 0, 512))
+		return make([]byte, 128)
 	},
 }
 
@@ -40,7 +44,6 @@ func NewUnixSocketBackend(socketPath string) *UnixSocketBackend {
 }
 
 func (b *UnixSocketBackend) Start(handler Handler) error {
-	// TODO unlink a leftover socket path so Start works after a crash.
 	listener, err := net.Listen("unix", b.socketPath)
 	if err != nil {
 		return err
@@ -75,110 +78,141 @@ func (b *UnixSocketBackend) Start(handler Handler) error {
 	}
 }
 
-func (b *UnixSocketBackend) disconnect(conn *Conn) {
+func (b *UnixSocketBackend) disconnect(conn *Conn, cv *sync.Cond) {
 	b.connMu.Lock()
-	defer b.connMu.Unlock()
 	conn.Close()
 	delete(b.conns, conn)
+	b.connMu.Unlock()
+
+	cv.Broadcast()
 }
 
 func (b *UnixSocketBackend) handleConn(conn *Conn) {
-	rpChan := make(chan protocol.Packet, 1)
+	var mu sync.Mutex
+	var cv = sync.NewCond(&mu)
+	var buf = byteBufferPool.Get().([]byte)
+	var writeBuf = byteBufferPool.Get().([]byte)
+
+	pending := true
+	handling := false
+
+	readerPacket := &protocol.Packet{}
+	writerPacket := &protocol.Packet{}
+
+	defer func() {
+		if cap(buf) < maxBufferSize {
+			byteBufferPool.Put(buf[:0])
+		}
+		if cap(writeBuf) < maxBufferSize {
+			byteBufferPool.Put(writeBuf[:0])
+		}
+	}()
 
 	go func() {
 		var header [protocol.PacketHeaderSize]byte
-		var err error = nil
-		readerBuf := byteBufferPool.Get().(*bytes.Buffer)
-
-		defer func() {
-			b.closeBuffer(readerBuf)
-			close(rpChan)
-		}()
 
 		for {
-			_, err = io.ReadFull(conn.nConn, header[:])
+			_, err := io.ReadFull(conn.nConn, header[:])
 			if err != nil {
-				readerBuf.Reset()
-				conn.writePacket(readerBuf, protocol.NewErrPacket(err))
-				b.disconnect(conn)
+				b.disconnect(conn, cv)
+				return
+			}
+
+			mu.Lock()
+			if handling || conn.ctx.Err() != nil {
+				b.disconnect(conn, cv)
+				mu.Unlock()
+				return
+			}
+
+			for !pending && conn.ctx.Err() == nil {
+				cv.Wait()
+			}
+
+			if conn.ctx.Err() != nil {
+				mu.Unlock()
 				return
 			}
 
 			plen := binary.BigEndian.Uint32(header[2:])
-			// TODO cap plen; a huge length can OOM.
-			// TODO ReadFull into a per-conn []byte; CopyN allocates a scratch buffer then copies into readerBuf.
-
-			readerBuf.Grow(int(plen))
-			n, err := io.CopyN(readerBuf, conn.nConn, int64(plen))
-			if err != nil || n != int64(plen) {
-				readerBuf.Reset()
-				conn.writePacket(readerBuf, protocol.NewErrPacket(err))
-				b.disconnect(conn)
+			if plen > maxPacketSize {
+				readerPacket.Reset()
+				readerPacket.LoadError(protocol.ErrPacketTooLarge)
+				conn.writePacket(&writeBuf, readerPacket)
+				b.disconnect(conn, cv)
+				mu.Unlock()
 				return
 			}
 
-			pBytes := bytes.Clone(readerBuf.Bytes())
-			// TODO drop Clone: ping-pong two payload buffers (or two Packets) so Handle can keep the bytes while the reader fills the other.
+			if cap(buf) < int(plen) {
+				buf = make([]byte, plen)
+			} else {
+				buf = buf[:plen]
+			}
 
-			p := protocol.Packet{}
-			p.Version = header[0]
-			p.Type = protocol.PacketType(header[1])
-			p.PayloadLength = plen
-			err = p.DeserializePayload(pBytes)
-			if err != nil {
-				readerBuf.Reset()
-				conn.writePacket(readerBuf, protocol.NewErrPacket(err))
-				b.disconnect(conn)
+			n, err := io.ReadFull(conn.nConn, buf)
+			if n != int(plen) || err != nil {
+				readerPacket.Reset()
+				readerPacket.LoadError(protocol.ErrInvalidPacket)
+				conn.writePacket(&writeBuf, readerPacket)
+				b.disconnect(conn, cv)
+				mu.Unlock()
 				return
 			}
 
-			// TODO send *Packet, not a copy of Blocks slice headers, once packets are reused per conn.
-			rpChan <- p
-			readerBuf.Reset()
+			readerPacket.Reset()
+			readerPacket.Version = header[0]
+			readerPacket.Type = protocol.PacketType(header[1])
+			readerPacket.PayloadLength = plen
+			if err = readerPacket.DeserializePayload(buf[:n]); err != nil {
+				readerPacket.Reset()
+				readerPacket.LoadError(err)
+				conn.writePacket(&writeBuf, readerPacket)
+				b.disconnect(conn, cv)
+				mu.Unlock()
+				return
+			}
+			handling = true
+			pending = false
+			cv.Broadcast()
+			mu.Unlock()
 		}
-	}()
-
-	writerPacket := &protocol.Packet{}
-	writerBuffer := byteBufferPool.Get().(*bytes.Buffer)
-	defer func() {
-		b.closeBuffer(writerBuffer)
-		b.disconnect(conn)
 	}()
 
 	for {
-		select {
-			case <-conn.ctx.Done():
-				return
-			case packet := <-rpChan:
-				err := b.handler.Handle(&packet, writerPacket, conn.ctx)
-				if err != nil {
-					conn.writePacket(writerBuffer, protocol.NewErrPacket(err))
-					b.disconnect(conn)
-					return
-				}
-				err = conn.writePacket(writerBuffer, writerPacket)
-				if err != nil {
-					b.disconnect(conn)
-					return
-				}
-
-				// Reset the writer packet.
-				{
-					writerPacket.Type = 0
-					writerPacket.Version = 0
-					writerPacket.PayloadLength = 0
-					clear(writerPacket.Blocks[:])
-				}
+		mu.Lock()
+		for !handling && conn.ctx.Err() == nil {
+			cv.Wait()
 		}
-	}
-}
 
-func (b *UnixSocketBackend) closeBuffer(buf *bytes.Buffer) {
-	const mb = 1024 * 1024
+		if conn.ctx.Err() != nil {
+			mu.Unlock()
+			return
+		}
 
-	buf.Reset()
-	if buf.Cap() < mb {
-		byteBufferPool.Put(buf)
+		writerPacket.Reset()
+		err := b.handler.Handle(readerPacket, writerPacket, conn.ctx)
+		if err != nil {
+			writerPacket.Reset()
+			writerPacket.LoadError(ErrInternal)
+			conn.writePacket(&writeBuf, writerPacket)
+			b.disconnect(conn, cv)
+			mu.Unlock()
+			return
+		}
+
+		handling = false
+
+		err = conn.writePacket(&writeBuf, writerPacket)
+		if err != nil {
+			b.disconnect(conn, cv)
+			mu.Unlock()
+			return
+		}
+
+		pending = true
+		cv.Broadcast()
+		mu.Unlock()
 	}
 }
 

@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"context"
 	"glock/internal/protocol"
 	"net"
@@ -23,9 +22,8 @@ func (c *Conn) Close() {
 	c.nConn.Close()
 }
 
-func (c *Conn) writePacket(buf *bytes.Buffer, pkt *protocol.Packet) error {
-	buf.Reset()
-	pkt.Serialize(buf)
-	_, err := c.nConn.Write(buf.Bytes())
+func (c *Conn) writePacket(buf *[]byte, pkt *protocol.Packet) error {
+	*buf = pkt.Serialize((*buf)[:0])
+	_, err := c.nConn.Write(*buf)
 	return err
 }

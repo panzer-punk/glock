@@ -95,11 +95,8 @@ func pktUnlock(ns, key, secret string) *protocol.Packet {
 }
 
 func callHandle(a *App, rq *protocol.Packet, ctx context.Context) (*protocol.Packet, error) {
-	rp := protocol.Packet{
-		Version: protocol.ProtoVersion,
-		// TODO stop pre-seeding Success; handlers must set it. Add an App+UnixSocket e2e test.
-		Type: protocol.PacketTypeSuccess,
-	}
+	var rp protocol.Packet
+	rp.Reset()
 	err := a.Handle(rq, &rp, ctx)
 	return &rp, err
 }
